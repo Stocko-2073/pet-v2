@@ -468,6 +468,7 @@ class Roboscad:
   <option timestep="0.005"/>
                       
   <default>
+      <mesh maxhullvert="32"/>
       <default class="servo_joint">
           <joint type="hinge" damping="1.084" armature="0.045" frictionloss="0.03" limited="true"/>
       </default>
@@ -559,6 +560,8 @@ class Roboscad:
                             f.write(f'size="0.01" type="sphere" rgba="1 0 0 1"/>\n')
                         
                 if is_root:
+                    f.write(f'{indent}    <camera name="back" pos="-3 0 1" xyaxes="0 -1 0 1 0 2" mode="trackcom"/>\n')
+                    f.write(f'{indent}    <camera name="side" pos="0 -3 1" xyaxes="1 0 0 0 1 2" mode="trackcom"/>\n')
                     f.write(f'{indent}    <freejoint/>\n')
 
                 rgba = self.hex2rgba(part_colors[part_label])

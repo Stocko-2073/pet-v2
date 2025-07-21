@@ -32,21 +32,23 @@
   </default>
   <asset>
       <material name="white" rgba="1 1 1 1.0"/>
+      <mesh file="part_foot2.stl"/>
+      <mesh file="part_hip3.stl"/>
+      <mesh file="part_hip1.stl"/>
+      <mesh file="part_leg1.stl"/>
       <mesh file="part_leg2.stl"/>
       <mesh file="part_hip2.stl"/>
-      <mesh file="part_hip3.stl"/>
-      <mesh file="part_foot1.stl"/>
-      <mesh file="part_leg1.stl"/>
-      <mesh file="part_foot3.stl"/>
-      <mesh file="part_hip1.stl"/>
-      <mesh file="part_body.stl"/>
-      <mesh file="part_foot2.stl"/>
       <mesh file="part_leg3.stl"/>
+      <mesh file="part_foot3.stl"/>
+      <mesh file="part_body.stl"/>
+      <mesh file="part_foot1.stl"/>
   </asset>
   <worldbody>
     <body name="part_body" pos="0.00000e+00 0.00000e+00 0.00000e+00" quat="1.00000e+00 0.00000e+00 0.00000e+00 0.00000e+00" >
       <inertial pos="-4.70549e-07 2.07047e-06 2.65300e-02" mass="8.50114e-01" fullinertia="1.05431e-03 1.05536e-03 1.66754e-03 -3.18416e-13 -3.72046e-09 4.85580e-08"/>
       <site name="body_site" pos="0.00000e+00 0.00000e+00 0.00000e+00" quat="1.00000e+00 0.00000e+00 0.00000e+00 0.00000e+00" size="0.01" type="sphere" rgba="1 0 0 1"/>
+      <camera name="back" pos="-3 0 1" xyaxes="0 -1 0 1 0 2" mode="trackcom"/>
+      <camera name="side" pos="0 -3 1" xyaxes="1 0 0 0 1 2" mode="trackcom"/>
       <freejoint/>
       <geom class="main_vis" mesh="part_body" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
       <geom class="main_col" mesh="part_body"/>
