@@ -576,7 +576,7 @@ module whole_leg_sim(i) {
     part(foot_name) foot_sim() end_part(foot_name);
 }
 
-$fs=4;
+$fs=16;
                     
 body_sim() {
     whole_leg_sim(1);

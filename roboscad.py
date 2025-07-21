@@ -370,7 +370,11 @@ class Roboscad:
                     stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
             # Load the STL for modification
-            stl_mesh = mesh.Mesh.from_file(orig_stl_file)
+            stl_mesh = mesh.Mesh.from_file(
+                orig_stl_file,
+                remove_empty_areas=True,
+                remove_duplicate_polygons=True
+            )
             
             # Find the transform for the part
             transform = self.follow_transform_to_part(part_label, lines)

@@ -31,36 +31,36 @@
   </default>
   <asset>
       <material name="white" rgba="1 1 1 1.0"/>
-      <mesh file="part_hip3.stl"/>
-      <mesh file="part_leg1.stl"/>
       <mesh file="part_leg2.stl"/>
-      <mesh file="part_foot3.stl"/>
-      <mesh file="part_foot1.stl"/>
       <mesh file="part_hip2.stl"/>
-      <mesh file="part_leg3.stl"/>
-      <mesh file="part_body.stl"/>
+      <mesh file="part_hip3.stl"/>
+      <mesh file="part_foot1.stl"/>
+      <mesh file="part_leg1.stl"/>
+      <mesh file="part_foot3.stl"/>
       <mesh file="part_hip1.stl"/>
+      <mesh file="part_body.stl"/>
       <mesh file="part_foot2.stl"/>
+      <mesh file="part_leg3.stl"/>
   </asset>
   <worldbody>
     <body name="part_body" pos="0.00000e+00 0.00000e+00 0.00000e+00" quat="1.00000e+00 0.00000e+00 0.00000e+00 0.00000e+00" >
-      <inertial pos="5.79396e-09 1.98920e-06 2.71890e-02" mass="8.84935e-01" fullinertia="1.12349e-03 1.12448e-03 1.77485e-03 -7.90938e-13 -1.12084e-11 4.97264e-08"/>
+      <inertial pos="-4.70549e-07 2.07047e-06 2.65300e-02" mass="8.50114e-01" fullinertia="1.05431e-03 1.05536e-03 1.66754e-03 -3.18416e-13 -3.72046e-09 4.85580e-08"/>
       <site name="body_site" pos="0.00000e+00 0.00000e+00 0.00000e+00" quat="1.00000e+00 0.00000e+00 0.00000e+00 0.00000e+00" size="0.01" type="sphere" rgba="1 0 0 1"/>
       <freejoint/>
       <geom class="main_vis" mesh="part_body" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
       <geom class="main_col" mesh="part_body"/>
       <body name="part_hip1" pos="7.00000e-02 0.00000e+00 -2.00000e-05" quat="7.07107e-01 0.00000e+00 0.00000e+00 7.07107e-01" >
-        <inertial pos="2.27737e-10 -2.12332e-02 1.60500e-02" mass="4.63713e-02" fullinertia="1.59978e-05 1.38821e-05 8.15970e-06 1.80888e-13 2.90781e-13 -5.31862e-12"/>
+        <inertial pos="5.40009e-10 -2.10724e-02 1.60500e-02" mass="4.38325e-02" fullinertia="1.45068e-05 1.27650e-05 7.40980e-06 -5.48854e-13 5.81136e-13 -1.85574e-12"/>
         <geom class="main_vis" mesh="part_hip1" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
         <geom class="main_col" mesh="part_hip1"/>
         <joint name="revolute_body_hip1_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
         <body name="part_leg1" pos="-1.43950e-02 -2.44500e-02 1.05000e-02" quat="6.53281e-01 2.70598e-01 6.53281e-01 2.70598e-01" >
-          <inertial pos="-1.57740e-03 -3.54868e-02 1.43500e-02" mass="4.05171e-02" fullinertia="1.90696e-05 6.76123e-06 1.51299e-05 8.47424e-07 8.42161e-13 9.15049e-12"/>
+          <inertial pos="-1.36319e-03 -3.64237e-02 1.43500e-02" mass="3.66789e-02" fullinertia="1.72637e-05 5.92550e-06 1.36232e-05 8.18375e-07 -3.47931e-13 -7.84468e-12"/>
           <geom class="main_vis" mesh="part_leg1" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
           <geom class="main_col" mesh="part_leg1"/>
           <joint name="revolute_hip1_leg1_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
           <body name="part_foot1" pos="1.00000e-03 -5.30000e-02 4.98000e-03" quat="1.00000e+00 0.00000e+00 0.00000e+00 0.00000e+00" >
-            <inertial pos="4.69992e-10 -2.50195e-02 9.25001e-03" mass="2.86678e-02" fullinertia="9.59267e-06 5.58672e-06 6.30519e-06 -2.21031e-13 1.90065e-13 -5.23918e-12"/>
+            <inertial pos="-2.38889e-10 -2.40969e-02 9.25000e-03" mass="2.43898e-02" fullinertia="7.85378e-06 4.69466e-06 4.83017e-06 1.57398e-13 2.12119e-14 -1.86238e-12"/>
             <geom class="main_vis" mesh="part_foot1" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
             <geom class="main_col" mesh="part_foot1"/>
             <joint name="revolute_leg1_foot1_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
@@ -68,17 +68,17 @@
         </body>
       </body>
       <body name="part_hip2" pos="-3.50000e-02 6.06218e-02 -2.00000e-05" quat="2.58819e-01 0.00000e+00 0.00000e+00 -9.65926e-01" >
-        <inertial pos="2.27737e-10 -2.12332e-02 1.60500e-02" mass="4.63713e-02" fullinertia="1.59978e-05 1.38821e-05 8.15970e-06 1.80888e-13 2.90781e-13 -5.31862e-12"/>
+        <inertial pos="5.40009e-10 -2.10724e-02 1.60500e-02" mass="4.38325e-02" fullinertia="1.45068e-05 1.27650e-05 7.40980e-06 -5.48854e-13 5.81136e-13 -1.85574e-12"/>
         <geom class="main_vis" mesh="part_hip2" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
         <geom class="main_col" mesh="part_hip2"/>
         <joint name="revolute_body_hip2_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
         <body name="part_leg2" pos="-1.43950e-02 -2.44500e-02 1.05000e-02" quat="6.53281e-01 2.70598e-01 6.53281e-01 2.70598e-01" >
-          <inertial pos="-1.57740e-03 -3.54868e-02 1.43500e-02" mass="4.05171e-02" fullinertia="1.90696e-05 6.76123e-06 1.51299e-05 8.47424e-07 8.42161e-13 9.15049e-12"/>
+          <inertial pos="-1.36319e-03 -3.64237e-02 1.43500e-02" mass="3.66789e-02" fullinertia="1.72637e-05 5.92550e-06 1.36232e-05 8.18375e-07 -3.47931e-13 -7.84468e-12"/>
           <geom class="main_vis" mesh="part_leg2" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
           <geom class="main_col" mesh="part_leg2"/>
           <joint name="revolute_hip2_leg2_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
           <body name="part_foot2" pos="1.00000e-03 -5.30000e-02 4.98000e-03" quat="1.00000e+00 -0.00000e+00 -0.00000e+00 -0.00000e+00" >
-            <inertial pos="4.69992e-10 -2.50195e-02 9.25001e-03" mass="2.86678e-02" fullinertia="9.59267e-06 5.58672e-06 6.30519e-06 -2.21031e-13 1.90065e-13 -5.23918e-12"/>
+            <inertial pos="-2.38889e-10 -2.40969e-02 9.25000e-03" mass="2.43898e-02" fullinertia="7.85378e-06 4.69466e-06 4.83017e-06 1.57398e-13 2.12119e-14 -1.86238e-12"/>
             <geom class="main_vis" mesh="part_foot2" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
             <geom class="main_col" mesh="part_foot2"/>
             <joint name="revolute_leg2_foot2_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
@@ -86,17 +86,17 @@
         </body>
       </body>
       <body name="part_hip3" pos="-3.50000e-02 -6.06218e-02 -2.00000e-05" quat="9.65926e-01 0.00000e+00 0.00000e+00 -2.58819e-01" >
-        <inertial pos="2.27737e-10 -2.12332e-02 1.60500e-02" mass="4.63713e-02" fullinertia="1.59978e-05 1.38821e-05 8.15970e-06 1.80888e-13 2.90781e-13 -5.31862e-12"/>
+        <inertial pos="5.40009e-10 -2.10724e-02 1.60500e-02" mass="4.38325e-02" fullinertia="1.45068e-05 1.27650e-05 7.40980e-06 -5.48854e-13 5.81136e-13 -1.85574e-12"/>
         <geom class="main_vis" mesh="part_hip3" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
         <geom class="main_col" mesh="part_hip3"/>
         <joint name="revolute_body_hip3_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
         <body name="part_leg3" pos="-1.43950e-02 -2.44500e-02 1.05000e-02" quat="6.53281e-01 2.70598e-01 6.53281e-01 2.70598e-01" >
-          <inertial pos="-1.57740e-03 -3.54868e-02 1.43500e-02" mass="4.05171e-02" fullinertia="1.90696e-05 6.76123e-06 1.51299e-05 8.47424e-07 8.42161e-13 9.15049e-12"/>
+          <inertial pos="-1.36319e-03 -3.64237e-02 1.43500e-02" mass="3.66789e-02" fullinertia="1.72637e-05 5.92550e-06 1.36232e-05 8.18375e-07 -3.47931e-13 -7.84468e-12"/>
           <geom class="main_vis" mesh="part_leg3" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
           <geom class="main_col" mesh="part_leg3"/>
           <joint name="revolute_hip3_leg3_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
           <body name="part_foot3" pos="1.00000e-03 -5.30000e-02 4.98000e-03" quat="1.00000e+00 0.00000e+00 0.00000e+00 0.00000e+00" >
-            <inertial pos="4.69992e-10 -2.50195e-02 9.25001e-03" mass="2.86678e-02" fullinertia="9.59267e-06 5.58672e-06 6.30519e-06 -2.21031e-13 1.90065e-13 -5.23918e-12"/>
+            <inertial pos="-2.38889e-10 -2.40969e-02 9.25000e-03" mass="2.43898e-02" fullinertia="7.85378e-06 4.69466e-06 4.83017e-06 1.57398e-13 2.12119e-14 -1.86238e-12"/>
             <geom class="main_vis" mesh="part_foot3" rgba="0.8666666666666667 0.2 0.8666666666666667 1.0"/>
             <geom class="main_col" mesh="part_foot3"/>
             <joint name="revolute_leg3_foot3_0_0_1" axis="0 0 1" range="-9.00000e+01 9.00000e+01" class="servo_joint"/>
