@@ -11,6 +11,7 @@
   <option timestep="0.005"/>
                       
   <default>
+      <mesh maxhullvert="32"/>
       <default class="servo_joint">
           <joint type="hinge" damping="1.084" armature="0.045" frictionloss="0.03" limited="true"/>
       </default>
