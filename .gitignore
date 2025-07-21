@@ -1,5 +1,5 @@
-pet
 pet.echo
 checkpoints
 __pycache__
 tensorboard
+pet/meshes/*_orig.stl

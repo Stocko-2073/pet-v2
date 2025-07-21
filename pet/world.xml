@@ -1,0 +1,27 @@
+<mujoco model="World">
+  <option timestep="0.005" solver="CG" iterations="30" tolerance="1e-6"/>
+
+  <size memory="20M"/>
+
+  <visual>
+    <map force="0.1" zfar="30"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <quality shadowsize="2048"/>
+    <global offwidth="800" offheight="800"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
+    <texture name="plane" type="2d" builtin="checker" rgb1=".2 .3 .4" rgb2=".1 0.15 0.2"
+             width="512" height="512" mark="cross" markrgb=".8 .8 .8"/>
+    <material name="plane" reflectance="0.3" texture="plane" texrepeat="1 1" texuniform="true"/>
+  </asset>
+
+  <include file="pet.xml"/>
+
+  <worldbody>
+    <geom name="floor" pos="0 0 -0.3" size="0 0 .25" type="plane" material="plane" condim="3"/>
+    <light directional="true" diffuse=".2 .2 .2" specular="0 0 0" pos="0 0 5" dir="0 0 -1" castshadow="false"/>
+    <light directional="false" diffuse=".8 .8 .8" specular="0.3 0.3 0.3" pos="0 0 4" dir="0 0 -1"/>
+  </worldbody>
+</mujoco>
