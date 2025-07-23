@@ -32,16 +32,16 @@
   </default>
   <asset>
       <material name="white" rgba="1 1 1 1.0"/>
-      <mesh file="part_foot2.stl"/>
-      <mesh file="part_hip3.stl"/>
-      <mesh file="part_hip1.stl"/>
-      <mesh file="part_leg1.stl"/>
-      <mesh file="part_leg2.stl"/>
-      <mesh file="part_hip2.stl"/>
-      <mesh file="part_leg3.stl"/>
-      <mesh file="part_foot3.stl"/>
-      <mesh file="part_body.stl"/>
-      <mesh file="part_foot1.stl"/>
+      <mesh file="meshes/part_foot2.stl"/>
+      <mesh file="meshes/part_hip3.stl"/>
+      <mesh file="meshes/part_hip1.stl"/>
+      <mesh file="meshes/part_leg1.stl"/>
+      <mesh file="meshes/part_leg2.stl"/>
+      <mesh file="meshes/part_hip2.stl"/>
+      <mesh file="meshes/part_leg3.stl"/>
+      <mesh file="meshes/part_foot3.stl"/>
+      <mesh file="meshes/part_body.stl"/>
+      <mesh file="meshes/part_foot1.stl"/>
   </asset>
   <worldbody>
     <body name="part_body" pos="0.00000e+00 0.00000e+00 0.00000e+00" quat="1.00000e+00 0.00000e+00 0.00000e+00 0.00000e+00" >

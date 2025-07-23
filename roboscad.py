@@ -499,7 +499,7 @@ class Roboscad:
                 i += 1
 
             for part_label in all_parts:
-                f.write(f'      <mesh file="part_{part_label}.stl"/>\n')
+                f.write(f'      <mesh file="meshes/part_{part_label}.stl"/>\n')
             f.write(f'  </asset>\n')
 
             f.write(f'  <worldbody>\n')
