@@ -170,8 +170,9 @@ def setup_networks_and_optimizers(args, envs, device):
             target_entropy, log_alpha, alpha, a_optimizer)
 
 
-def train_sac(args, envs, device, actor, qf1, qf2, qf1_target, qf2_target, 
-              q_optimizer, actor_optimizer, target_entropy, log_alpha, alpha, a_optimizer, writer):
+def sac_init(args, envs, device, networks, writer):
+    actor, qf1, qf2, qf1_target, qf2_target, q_optimizer, actor_optimizer, target_entropy, log_alpha, alpha, a_optimizer = networks
+    
     envs.single_observation_space.dtype = np.float32
     rb = ReplayBuffer(
         args.buffer_size,
@@ -182,92 +183,126 @@ def train_sac(args, envs, device, actor, qf1, qf2, qf1_target, qf2_target,
         handle_timeout_termination=False,
     )
     start_time = time.time()
-
     obs, _ = envs.reset(seed=args.seed)
-    for global_step in range(args.total_timesteps):
-        if global_step < args.learning_starts:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-        else:
-            actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
-            actions = actions.detach().cpu().numpy()
+    
+    return rb, obs, start_time, alpha
 
-        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
-        if "final_info" in infos:
-            for info in infos["final_info"]:
-                if info is not None:
-                    print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                    writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                    writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-                    break
+def sac_pre_step(global_step, args, envs, device, actor, obs):
+    if global_step < args.learning_starts:
+        actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+    else:
+        actions, _, _ = actor.get_action(torch.Tensor(obs).to(device))
+        actions = actions.detach().cpu().numpy()
 
-        real_next_obs = next_obs.copy()
-        for idx, trunc in enumerate(truncations):
-            if trunc:
-                real_next_obs[idx] = infos["final_observation"][idx]
-        rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
+    next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+    return actions, next_obs, rewards, terminations, truncations, infos
 
-        obs = next_obs
 
-        if global_step > args.learning_starts:
-            data = rb.sample(args.batch_size)
-            with torch.no_grad():
-                next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
-                qf1_next_target = qf1_target(data.next_observations, next_state_actions)
-                qf2_next_target = qf2_target(data.next_observations, next_state_actions)
-                min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
+def sac_post_step(global_step, args, step_data, networks, rb, writer, start_time):
+    actions, next_obs, rewards, terminations, truncations, infos, obs = step_data
+    actor, qf1, qf2, qf1_target, qf2_target, q_optimizer, actor_optimizer, target_entropy, log_alpha, alpha, a_optimizer = networks
+    
+    if "final_info" in infos:
+        for info in infos["final_info"]:
+            if info is not None:
+                print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+                writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                break
 
-            qf1_a_values = qf1(data.observations, data.actions).view(-1)
-            qf2_a_values = qf2(data.observations, data.actions).view(-1)
-            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-            qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-            qf_loss = qf1_loss + qf2_loss
+    real_next_obs = next_obs.copy()
+    for idx, trunc in enumerate(truncations):
+        if trunc:
+            real_next_obs[idx] = infos["final_observation"][idx]
+    rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
 
-            q_optimizer.zero_grad()
-            qf_loss.backward()
-            q_optimizer.step()
+    updated_alpha = alpha
+    if global_step > args.learning_starts:
+        data = rb.sample(args.batch_size)
+        with torch.no_grad():
+            next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
+            qf1_next_target = qf1_target(data.next_observations, next_state_actions)
+            qf2_next_target = qf2_target(data.next_observations, next_state_actions)
+            min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
+            next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
 
-            if global_step % args.policy_frequency == 0:
-                for _ in range(args.policy_frequency):
-                    pi, log_pi, _ = actor.get_action(data.observations)
-                    qf1_pi = qf1(data.observations, pi)
-                    qf2_pi = qf2(data.observations, pi)
-                    min_qf_pi = torch.min(qf1_pi, qf2_pi)
-                    actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
+        qf1_a_values = qf1(data.observations, data.actions).view(-1)
+        qf2_a_values = qf2(data.observations, data.actions).view(-1)
+        qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+        qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
+        qf_loss = qf1_loss + qf2_loss
 
-                    actor_optimizer.zero_grad()
-                    actor_loss.backward()
-                    actor_optimizer.step()
+        q_optimizer.zero_grad()
+        qf_loss.backward()
+        q_optimizer.step()
 
-                    if args.autotune:
-                        with torch.no_grad():
-                            _, log_pi, _ = actor.get_action(data.observations)
-                        alpha_loss = (-log_alpha.exp() * (log_pi + target_entropy)).mean()
+        if global_step % args.policy_frequency == 0:
+            for _ in range(args.policy_frequency):
+                pi, log_pi, _ = actor.get_action(data.observations)
+                qf1_pi = qf1(data.observations, pi)
+                qf2_pi = qf2(data.observations, pi)
+                min_qf_pi = torch.min(qf1_pi, qf2_pi)
+                actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
-                        a_optimizer.zero_grad()
-                        alpha_loss.backward()
-                        a_optimizer.step()
-                        alpha = log_alpha.exp().item()
+                actor_optimizer.zero_grad()
+                actor_loss.backward()
+                actor_optimizer.step()
 
-            if global_step % args.target_network_frequency == 0:
-                for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
-                    target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-                for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
-                    target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-
-            if global_step % 100 == 0:
-                writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-                writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-                writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-                writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-                writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
-                writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
-                writer.add_scalar("losses/alpha", alpha, global_step)
-                print("SPS:", int(global_step / (time.time() - start_time)))
-                writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
                 if args.autotune:
-                    writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
+                    with torch.no_grad():
+                        _, log_pi, _ = actor.get_action(data.observations)
+                    alpha_loss = (-log_alpha.exp() * (log_pi + target_entropy)).mean()
+
+                    a_optimizer.zero_grad()
+                    alpha_loss.backward()
+                    a_optimizer.step()
+                    updated_alpha = log_alpha.exp().item()
+
+        if global_step % args.target_network_frequency == 0:
+            for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
+                target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+            for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
+                target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
+
+        if global_step % 100 == 0:
+            writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
+            writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
+            writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
+            writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
+            writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
+            writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
+            writer.add_scalar("losses/alpha", alpha, global_step)
+            print("SPS:", int(global_step / (time.time() - start_time)))
+            writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            if args.autotune:
+                writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
+
+    return next_obs, updated_alpha
+
+
+def example_training_loop(args, envs, device, networks, writer):
+    rb, obs, start_time, alpha = sac_init(args, envs, device, networks, writer)
+    actor = networks[0]
+    
+    for global_step in range(args.total_timesteps):
+        actions, next_obs, rewards, terminations, truncations, infos = sac_pre_step(
+            global_step, args, envs, device, actor, obs
+        )
+        
+        step_data = (actions, next_obs, rewards, terminations, truncations, infos, obs)
+        obs, alpha = sac_post_step(global_step, args, step_data, networks, rb, writer, start_time)
+        
+        # Update networks tuple with new alpha value if it changed
+        if alpha != networks[9]:
+            networks = (*networks[:9], alpha, networks[10])
+
+
+def train_sac(args, envs, device, actor, qf1, qf2, qf1_target, qf2_target, 
+              q_optimizer, actor_optimizer, target_entropy, log_alpha, alpha, a_optimizer, writer):
+    networks = (actor, qf1, qf2, qf1_target, qf2_target, q_optimizer, actor_optimizer, 
+                target_entropy, log_alpha, alpha, a_optimizer)
+    example_training_loop(args, envs, device, networks, writer)
 
 
 if __name__ == "__main__":
@@ -285,10 +320,8 @@ if __name__ == "__main__":
 
     envs, device, max_action = setup_environment(args, run_name)
     networks = setup_networks_and_optimizers(args, envs, device)
-    actor, qf1, qf2, qf1_target, qf2_target, q_optimizer, actor_optimizer, target_entropy, log_alpha, alpha, a_optimizer = networks
 
-    train_sac(args, envs, device, actor, qf1, qf2, qf1_target, qf2_target, 
-              q_optimizer, actor_optimizer, target_entropy, log_alpha, alpha, a_optimizer, writer)
+    example_training_loop(args, envs, device, networks, writer)
 
     envs.close()
     writer.close()
