@@ -16,17 +16,59 @@ from torch.utils.tensorboard import SummaryWriter
 from cleanrl_utils.buffers import ReplayBuffer
 
 
-def make_env(env_id, seed, idx, capture_video, run_name):
-    def thunk():
-        env = gym.make(env_id)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        if capture_video and idx == 0:
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        env.action_space.seed(seed)
-        env.observation_space.seed(seed)
-        return env
+class Space:
+    def __init__(self, shape, dtype=np.float32, low=None, high=None):
+        self.shape = shape
+        self.dtype = dtype
+        self.low = low
+        self.high = high
+        # Precalculate flat_dim since space is immutable
+        if isinstance(self.shape, (list, tuple)):
+            self.flat_dim = int(np.prod(self.shape))
+        else:
+            self.flat_dim = int(self.shape)
 
-    return thunk
+    def sample(self):
+        """Sample a random value from this space."""
+        if self.low is not None and self.high is not None:
+            return np.random.uniform(self.low, self.high).astype(self.dtype)
+        else:
+            return np.random.randn(*self.shape).astype(self.dtype)
+
+    def zeros(self, *batch_dims, device=None, dtype=None):
+        """Create a zero tensor with this space's shape."""
+        tensor_dtype = dtype or torch.float32
+        if isinstance(self.shape, (list, tuple)):
+            full_shape = batch_dims + self.shape
+        else:
+            full_shape = batch_dims + (self.shape,)
+        return torch.zeros(full_shape, dtype=tensor_dtype, device=device)
+
+    def ones(self, *batch_dims, device=None, dtype=None):
+        """Create a ones tensor with this space's shape."""
+        tensor_dtype = dtype or torch.float32
+        if isinstance(self.shape, (list, tuple)):
+            full_shape = batch_dims + self.shape
+        else:
+            full_shape = batch_dims + (self.shape,)
+        return torch.ones(full_shape, dtype=tensor_dtype, device=device)
+
+    def sample_tensor(self, *batch_dims, device=None, dtype=None):
+        """Create a random tensor sampled from this space."""
+        tensor_dtype = dtype or torch.float32
+        if isinstance(self.shape, (list, tuple)):
+            full_shape = batch_dims + self.shape
+        else:
+            full_shape = batch_dims + (self.shape,)
+
+        if self.low is not None and self.high is not None:
+            # Uniform sampling within bounds
+            low_tensor = torch.tensor(self.low, dtype=tensor_dtype, device=device)
+            high_tensor = torch.tensor(self.high, dtype=tensor_dtype, device=device)
+            return torch.rand(full_shape, dtype=tensor_dtype, device=device) * (high_tensor - low_tensor) + low_tensor
+        else:
+            # Normal distribution for unbounded spaces
+            return torch.randn(full_shape, dtype=tensor_dtype, device=device)
 
 
 @dataclass
@@ -60,8 +102,10 @@ class Args:
 
 
 class SoftQNetwork(nn.Module):
-    def __init__(self, num_observations, num_actions):
+    def __init__(self, obs_space, action_space):
         super().__init__()
+        num_observations = obs_space.flat_dim
+        num_actions = action_space.flat_dim
         hidden_size = 256
         self.fc1 = nn.Linear(
             num_observations + num_actions,
@@ -83,13 +127,18 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, num_observations, num_actions, action_low, action_high):
+    def __init__(self, obs_space, action_space):
         super().__init__()
+        num_observations = obs_space.flat_dim
+        num_actions = action_space.flat_dim
+        action_low = action_space.low
+        action_high = action_space.high
+
         self.fc1 = nn.Linear(num_observations, 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc_mean = nn.Linear(256, num_actions)
         self.fc_logstd = nn.Linear(256, num_actions)
-        
+
         self.register_buffer(
             "action_scale",
             torch.tensor((action_high - action_low) / 2.0, dtype=torch.float32),
@@ -127,43 +176,37 @@ class Actor(nn.Module):
 class SAC:
     """
     SAC (Soft Actor-Critic) algorithm implementation.
-    
-    This class is environment-agnostic and takes environment interface functions
-    rather than depending directly on gymnasium environments.
     """
-    def __init__(self, args, num_observations, num_actions, action_low, action_high, 
-                 initial_obs, env_sample_action_fn, device, writer):
+
+    def __init__(self, args, obs_space, action_space, initial_obs, env_step_fn, device, writer):
         self.args = args
-        self.num_observations = num_observations
-        self.num_actions = num_actions
-        self.action_low = action_low
-        self.action_high = action_high
+        self.obs_space = obs_space
+        self.action_space = action_space
         self.initial_obs = initial_obs
         self.env_step_fn = env_step_fn
-        self.env_sample_action_fn = env_sample_action_fn
         self.device = device
         self.writer = writer
         self.rb = None  # Will be initialized in init()
-        
+
         # Initialize networks
-        self.actor = Actor(num_observations, num_actions, action_low, action_high).to(device)
-        self.qf1 = SoftQNetwork(num_observations, num_actions).to(device)
-        self.qf2 = SoftQNetwork(num_observations, num_actions).to(device)
-        self.qf1_target = SoftQNetwork(num_observations, num_actions).to(device)
-        self.qf2_target = SoftQNetwork(num_observations, num_actions).to(device)
+        self.actor = Actor(obs_space, action_space).to(device)
+        self.qf1 = SoftQNetwork(obs_space, action_space).to(device)
+        self.qf2 = SoftQNetwork(obs_space, action_space).to(device)
+        self.qf1_target = SoftQNetwork(obs_space, action_space).to(device)
+        self.qf2_target = SoftQNetwork(obs_space, action_space).to(device)
         self.qf1_target.load_state_dict(self.qf1.state_dict())
         self.qf2_target.load_state_dict(self.qf2.state_dict())
-        
+
         # Initialize optimizers
         self.q_optimizer = optim.Adam(
-            list(self.qf1.parameters()) + list(self.qf2.parameters()), 
+            list(self.qf1.parameters()) + list(self.qf2.parameters()),
             lr=args.q_lr
         )
         self.actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=args.policy_lr)
-        
+
         # Initialize entropy regularization
         if args.autotune:
-            self.target_entropy = -torch.prod(torch.Tensor([num_actions]).to(device)).item()
+            self.target_entropy = -torch.prod(torch.Tensor([action_space.flat_dim]).to(device)).item()
             self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
             self.alpha = self.log_alpha.exp().item()
             self.a_optimizer = optim.Adam([self.log_alpha], lr=args.q_lr)
@@ -172,45 +215,29 @@ class SAC:
             self.log_alpha = None
             self.alpha = args.alpha
             self.a_optimizer = None
-    
-    def init(self):
-        # Create simple space-like objects for ReplayBuffer without gymnasium dependency
-        class SimpleSpace:
-            def __init__(self, shape, dtype, low=None, high=None):
-                self.shape = shape
-                self.dtype = dtype
-                self.low = low
-                self.high = high
-        
-        obs_space = SimpleSpace(shape=(self.num_observations,), dtype=np.float32)
-        action_space = SimpleSpace(shape=(self.num_actions,), dtype=np.float32, 
-                                 low=self.action_low, high=self.action_high)
-        
+
         self.rb = ReplayBuffer(
             self.args.buffer_size,
-            obs_space,
-            action_space,
+            self.obs_space,
+            self.action_space,
             self.device,
             n_envs=self.args.num_envs,
             handle_timeout_termination=False,
         )
-        start_time = time.time()
-        
-        return start_time
-    
+
     def pre_step(self, global_step, obs):
         if global_step < self.args.learning_starts:
-            actions = np.array([self.env_sample_action_fn() for _ in range(self.args.num_envs)])
+            actions = np.array([self.action_space.sample() for _ in range(self.args.num_envs)])
         else:
             actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
             actions = actions.detach().cpu().numpy()
 
         next_obs, rewards, terminations, truncations, infos = self.env_step_fn(actions)
         return actions, next_obs, rewards, terminations, truncations, infos
-    
-    def post_step(self, global_step, step_data, start_time):
+
+    def post_step(self, global_step, step_data):
         actions, next_obs, rewards, terminations, truncations, infos, obs = step_data
-        
+
         if "final_info" in infos:
             for info in infos["final_info"]:
                 if info is not None:
@@ -232,7 +259,8 @@ class SAC:
                 qf1_next_target = self.qf1_target(data.next_observations, next_state_actions)
                 qf2_next_target = self.qf2_target(data.next_observations, next_state_actions)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - self.alpha * next_state_log_pi
-                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * self.args.gamma * (min_qf_next_target).view(-1)
+                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * self.args.gamma * (
+                    min_qf_next_target).view(-1)
 
             qf1_a_values = self.qf1(data.observations, data.actions).view(-1)
             qf2_a_values = self.qf2(data.observations, data.actions).view(-1)
@@ -272,23 +300,20 @@ class SAC:
                 for param, target_param in zip(self.qf2.parameters(), self.qf2_target.parameters()):
                     target_param.data.copy_(self.args.tau * param.data + (1 - self.args.tau) * target_param.data)
 
-            if global_step % 100 == 0:
-                self.writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-                self.writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-                self.writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-                self.writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-                self.writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
-                self.writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
-                self.writer.add_scalar("losses/alpha", self.alpha, global_step)
-                print("SPS:", int(global_step / (time.time() - start_time)))
-                self.writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-                if self.args.autotune:
-                    self.writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
-
         return next_obs
 
 
-def setup_environment(args, run_name):
+if __name__ == "__main__":
+    args.env_id = "PET"
+    args.exp_name = "SAC"
+
+    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    writer = SummaryWriter(f"runs/{run_name}")
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
+
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -300,81 +325,53 @@ def setup_environment(args, run_name):
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
     max_action = float(envs.single_action_space.high[0])
-    return envs, device, max_action
+
+    # Create space objects
+    obs_space = Space(
+        shape=envs.single_observation_space.shape,
+        dtype=envs.single_observation_space.dtype
+    )
+    action_space = Space(
+        shape=envs.single_action_space.shape,
+        dtype=envs.single_action_space.dtype,
+        low=envs.single_action_space.low,
+        high=envs.single_action_space.high
+    )
+
+    # Reset environment externally
+    initial_obs, _ = envs.reset(seed=args.seed)
 
 
+    # Create environment interface functions
+    def env_step_fn(actions):
+        return envs.step(actions)
 
-def example_training_loop(args, envs, device, sac, writer):
-    start_time = sac.init()
+
+    # Create SAC with new interface
+    sac = SAC(args, obs_space, action_space, initial_obs, env_step_fn, device, writer)
+
+    sac.init()
     obs = sac.initial_obs
-    
+
+    start_time = time.time()
     for global_step in range(args.total_timesteps):
         actions, next_obs, rewards, terminations, truncations, infos = sac.pre_step(global_step, obs)
-        
+
         step_data = (actions, next_obs, rewards, terminations, truncations, infos, obs)
         obs = sac.post_step(global_step, step_data, start_time)
 
-
-def train_sac(args, envs, device, writer):
-    # Extract environment specifications
-    num_observations = np.array(envs.single_observation_space.shape).prod()
-    num_actions = np.prod(envs.single_action_space.shape)
-    action_low = envs.single_action_space.low
-    action_high = envs.single_action_space.high
-    
-    # Reset environment externally
-    initial_obs, _ = envs.reset(seed=args.seed)
-    
-    # Create environment interface functions
-    def env_step_fn(actions):
-        return envs.step(actions)
-    
-    def env_sample_action_fn():
-        return envs.single_action_space.sample()
-    
-    # Create SAC with new interface
-    sac = SAC(args, num_observations, num_actions, action_low, action_high,
-              initial_obs, env_step_fn, env_sample_action_fn, device, writer)
-    
-    example_training_loop(args, envs, device, sac, writer)
-
-
-if __name__ == "__main__":
-    args = tyro.cli(Args)
-    args.env_id = "HalfCheetah-v4"
-    args.exp_name = "SAC"
-    args.capture_video = False
-
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
-
-    envs, device, max_action = setup_environment(args, run_name)
-    
-    # Extract environment specifications
-    num_observations = np.array(envs.single_observation_space.shape).prod()
-    num_actions = np.prod(envs.single_action_space.shape)
-    action_low = envs.single_action_space.low
-    action_high = envs.single_action_space.high
-    
-    # Reset environment externally
-    initial_obs, _ = envs.reset(seed=args.seed)
-    
-    # Create environment interface functions
-    def env_step_fn(actions):
-        return envs.step(actions)
-    
-    def env_sample_action_fn():
-        return envs.single_action_space.sample()
-    
-    # Create SAC with new interface
-    sac = SAC(args, num_observations, num_actions, action_low, action_high,
-              initial_obs, env_step_fn, env_sample_action_fn, device, writer)
-
-    example_training_loop(args, envs, device, sac, writer)
+        if global_step % 100 == 0:
+            self.writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
+            self.writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
+            self.writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
+            self.writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
+            self.writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
+            self.writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
+            self.writer.add_scalar("losses/alpha", self.alpha, global_step)
+            print("SPS:", int(global_step / (time.time() - start_time)))
+            self.writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            if self.args.autotune:
+                self.writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
     envs.close()
     writer.close()
