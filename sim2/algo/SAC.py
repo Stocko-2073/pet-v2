@@ -60,14 +60,15 @@ class Args:
 
 
 class SoftQNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, num_observations, num_actions):
         super().__init__()
+        hidden_size = 256
         self.fc1 = nn.Linear(
-            np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape),
-            256,
+            num_observations + num_actions,
+            hidden_size,
         )
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
+        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, 1)
 
     def forward(self, x, a):
         x = torch.cat([x, a], 1)
@@ -82,26 +83,20 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, env):
+    def __init__(self, num_observations, num_actions, action_low, action_high):
         super().__init__()
-        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
+        self.fc1 = nn.Linear(num_observations, 256)
         self.fc2 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, np.prod(env.single_action_space.shape))
-        self.fc_logstd = nn.Linear(256, np.prod(env.single_action_space.shape))
-        # action rescaling
+        self.fc_mean = nn.Linear(256, num_actions)
+        self.fc_logstd = nn.Linear(256, num_actions)
+        
         self.register_buffer(
             "action_scale",
-            torch.tensor(
-                (env.single_action_space.high - env.single_action_space.low) / 2.0,
-                dtype=torch.float32,
-            ),
+            torch.tensor((action_high - action_low) / 2.0, dtype=torch.float32),
         )
         self.register_buffer(
             "action_bias",
-            torch.tensor(
-                (env.single_action_space.high + env.single_action_space.low) / 2.0,
-                dtype=torch.float32,
-            ),
+            torch.tensor((action_high + action_low) / 2.0, dtype=torch.float32),
         )
 
     def forward(self, x):
@@ -135,6 +130,7 @@ class SAC:
         self.envs = envs
         self.device = device
         self.writer = writer
+        self.rb = None  # Will be initialized in init()
         
         # Initialize networks
         self.actor = Actor(envs).to(device)
@@ -166,7 +162,7 @@ class SAC:
     
     def init(self):
         self.envs.single_observation_space.dtype = np.float32
-        rb = ReplayBuffer(
+        self.rb = ReplayBuffer(
             self.args.buffer_size,
             self.envs.single_observation_space,
             self.envs.single_action_space,
@@ -177,7 +173,7 @@ class SAC:
         start_time = time.time()
         obs, _ = self.envs.reset(seed=self.args.seed)
         
-        return rb, obs, start_time
+        return obs, start_time
     
     def pre_step(self, global_step, obs):
         if global_step < self.args.learning_starts:
@@ -189,7 +185,7 @@ class SAC:
         next_obs, rewards, terminations, truncations, infos = self.envs.step(actions)
         return actions, next_obs, rewards, terminations, truncations, infos
     
-    def post_step(self, global_step, step_data, rb, start_time):
+    def post_step(self, global_step, step_data, start_time):
         actions, next_obs, rewards, terminations, truncations, infos, obs = step_data
         
         if "final_info" in infos:
@@ -204,10 +200,10 @@ class SAC:
         for idx, trunc in enumerate(truncations):
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
-        rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
+        self.rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
 
         if global_step > self.args.learning_starts:
-            data = rb.sample(self.args.batch_size)
+            data = self.rb.sample(self.args.batch_size)
             with torch.no_grad():
                 next_state_actions, next_state_log_pi, _ = self.actor.get_action(data.next_observations)
                 qf1_next_target = self.qf1_target(data.next_observations, next_state_actions)
@@ -286,17 +282,17 @@ def setup_environment(args, run_name):
 
 
 def example_training_loop(args, envs, device, sac, writer):
-    rb, obs, start_time = sac.init()
+    sac = SAC(args, envs, device, writer)
+    obs, start_time = sac.init()
     
     for global_step in range(args.total_timesteps):
         actions, next_obs, rewards, terminations, truncations, infos = sac.pre_step(global_step, obs)
         
         step_data = (actions, next_obs, rewards, terminations, truncations, infos, obs)
-        obs = sac.post_step(global_step, step_data, rb, start_time)
+        obs = sac.post_step(global_step, step_data, start_time)
 
 
 def train_sac(args, envs, device, writer):
-    sac = SAC(args, envs, device, writer)
     example_training_loop(args, envs, device, sac, writer)
 
 
