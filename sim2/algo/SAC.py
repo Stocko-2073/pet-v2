@@ -125,19 +125,32 @@ class Actor(nn.Module):
 
 
 class SAC:
-    def __init__(self, args, envs, device, writer):
+    """
+    SAC (Soft Actor-Critic) algorithm implementation.
+    
+    This class is environment-agnostic and takes environment interface functions
+    rather than depending directly on gymnasium environments.
+    """
+    def __init__(self, args, num_observations, num_actions, action_low, action_high, 
+                 initial_obs, env_sample_action_fn, device, writer):
         self.args = args
-        self.envs = envs
+        self.num_observations = num_observations
+        self.num_actions = num_actions
+        self.action_low = action_low
+        self.action_high = action_high
+        self.initial_obs = initial_obs
+        self.env_step_fn = env_step_fn
+        self.env_sample_action_fn = env_sample_action_fn
         self.device = device
         self.writer = writer
         self.rb = None  # Will be initialized in init()
         
         # Initialize networks
-        self.actor = Actor(envs).to(device)
-        self.qf1 = SoftQNetwork(envs).to(device)
-        self.qf2 = SoftQNetwork(envs).to(device)
-        self.qf1_target = SoftQNetwork(envs).to(device)
-        self.qf2_target = SoftQNetwork(envs).to(device)
+        self.actor = Actor(num_observations, num_actions, action_low, action_high).to(device)
+        self.qf1 = SoftQNetwork(num_observations, num_actions).to(device)
+        self.qf2 = SoftQNetwork(num_observations, num_actions).to(device)
+        self.qf1_target = SoftQNetwork(num_observations, num_actions).to(device)
+        self.qf2_target = SoftQNetwork(num_observations, num_actions).to(device)
         self.qf1_target.load_state_dict(self.qf1.state_dict())
         self.qf2_target.load_state_dict(self.qf2.state_dict())
         
@@ -150,7 +163,7 @@ class SAC:
         
         # Initialize entropy regularization
         if args.autotune:
-            self.target_entropy = -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
+            self.target_entropy = -torch.prod(torch.Tensor([num_actions]).to(device)).item()
             self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
             self.alpha = self.log_alpha.exp().item()
             self.a_optimizer = optim.Adam([self.log_alpha], lr=args.q_lr)
@@ -161,28 +174,38 @@ class SAC:
             self.a_optimizer = None
     
     def init(self):
-        self.envs.single_observation_space.dtype = np.float32
+        # Create simple space-like objects for ReplayBuffer without gymnasium dependency
+        class SimpleSpace:
+            def __init__(self, shape, dtype, low=None, high=None):
+                self.shape = shape
+                self.dtype = dtype
+                self.low = low
+                self.high = high
+        
+        obs_space = SimpleSpace(shape=(self.num_observations,), dtype=np.float32)
+        action_space = SimpleSpace(shape=(self.num_actions,), dtype=np.float32, 
+                                 low=self.action_low, high=self.action_high)
+        
         self.rb = ReplayBuffer(
             self.args.buffer_size,
-            self.envs.single_observation_space,
-            self.envs.single_action_space,
+            obs_space,
+            action_space,
             self.device,
             n_envs=self.args.num_envs,
             handle_timeout_termination=False,
         )
         start_time = time.time()
-        obs, _ = self.envs.reset(seed=self.args.seed)
         
-        return obs, start_time
+        return start_time
     
     def pre_step(self, global_step, obs):
         if global_step < self.args.learning_starts:
-            actions = np.array([self.envs.single_action_space.sample() for _ in range(self.envs.num_envs)])
+            actions = np.array([self.env_sample_action_fn() for _ in range(self.args.num_envs)])
         else:
             actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
             actions = actions.detach().cpu().numpy()
 
-        next_obs, rewards, terminations, truncations, infos = self.envs.step(actions)
+        next_obs, rewards, terminations, truncations, infos = self.env_step_fn(actions)
         return actions, next_obs, rewards, terminations, truncations, infos
     
     def post_step(self, global_step, step_data, start_time):
@@ -282,8 +305,8 @@ def setup_environment(args, run_name):
 
 
 def example_training_loop(args, envs, device, sac, writer):
-    sac = SAC(args, envs, device, writer)
-    obs, start_time = sac.init()
+    start_time = sac.init()
+    obs = sac.initial_obs
     
     for global_step in range(args.total_timesteps):
         actions, next_obs, rewards, terminations, truncations, infos = sac.pre_step(global_step, obs)
@@ -293,6 +316,26 @@ def example_training_loop(args, envs, device, sac, writer):
 
 
 def train_sac(args, envs, device, writer):
+    # Extract environment specifications
+    num_observations = np.array(envs.single_observation_space.shape).prod()
+    num_actions = np.prod(envs.single_action_space.shape)
+    action_low = envs.single_action_space.low
+    action_high = envs.single_action_space.high
+    
+    # Reset environment externally
+    initial_obs, _ = envs.reset(seed=args.seed)
+    
+    # Create environment interface functions
+    def env_step_fn(actions):
+        return envs.step(actions)
+    
+    def env_sample_action_fn():
+        return envs.single_action_space.sample()
+    
+    # Create SAC with new interface
+    sac = SAC(args, num_observations, num_actions, action_low, action_high,
+              initial_obs, env_step_fn, env_sample_action_fn, device, writer)
+    
     example_training_loop(args, envs, device, sac, writer)
 
 
@@ -310,7 +353,26 @@ if __name__ == "__main__":
     )
 
     envs, device, max_action = setup_environment(args, run_name)
-    sac = SAC(args, envs, device, writer)
+    
+    # Extract environment specifications
+    num_observations = np.array(envs.single_observation_space.shape).prod()
+    num_actions = np.prod(envs.single_action_space.shape)
+    action_low = envs.single_action_space.low
+    action_high = envs.single_action_space.high
+    
+    # Reset environment externally
+    initial_obs, _ = envs.reset(seed=args.seed)
+    
+    # Create environment interface functions
+    def env_step_fn(actions):
+        return envs.step(actions)
+    
+    def env_sample_action_fn():
+        return envs.single_action_space.sample()
+    
+    # Create SAC with new interface
+    sac = SAC(args, num_observations, num_actions, action_low, action_high,
+              initial_obs, env_step_fn, env_sample_action_fn, device, writer)
 
     example_training_loop(args, envs, device, sac, writer)
 
