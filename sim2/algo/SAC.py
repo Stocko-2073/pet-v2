@@ -13,7 +13,55 @@ import torch.optim as optim
 import tyro
 from torch.utils.tensorboard import SummaryWriter
 
-from cleanrl_utils.buffers import ReplayBuffer
+
+class ReplayBufferData:
+    def __init__(self, observations, actions, rewards, next_observations, dones):
+        self.observations = observations
+        self.actions = actions
+        self.rewards = rewards
+        self.next_observations = next_observations
+        self.dones = dones
+
+
+class ReplayBuffer:
+    def __init__(self, buffer_size, obs_space, action_space, device, n_envs):
+        self.buffer_size = buffer_size
+        self.n_envs = n_envs
+        self.ptr = 0
+        self.size = 0
+
+        # Initialize storage buffers
+        self.observations = obs_space.zeros(buffer_size, device=device)
+        self.actions = action_space.zeros(buffer_size, device=device)
+        self.rewards = torch.zeros(buffer_size, device=device)
+        self.next_observations = obs_space.zeros(buffer_size, device=device)
+        self.dones = torch.zeros(buffer_size, dtype=torch.bool, device=device)
+
+    def add(self, obs, next_obs, actions, rewards, dones, infos):
+        # Calculate storage indices for all environments at once
+        indices = (self.ptr + torch.arange(self.n_envs, device=self.observations.device)) % self.buffer_size
+
+        # Vectorized storage - all environments at once
+        self.observations[indices] = obs
+        self.actions[indices] = actions
+        self.rewards[indices] = rewards
+        self.next_observations[indices] = next_obs
+        self.dones[indices] = dones
+
+        # Update pointer and size
+        self.ptr = (self.ptr + self.n_envs) % self.buffer_size
+        self.size = min(self.size + self.n_envs, self.buffer_size)
+
+    def sample(self, batch_size):
+        indices = torch.randint(0, self.size, (batch_size,), device=self.observations.device)
+
+        return ReplayBufferData(
+            observations=self.observations[indices],
+            actions=self.actions[indices],
+            rewards=self.rewards[indices],
+            next_observations=self.next_observations[indices],
+            dones=self.dones[indices]
+        )
 
 
 class Space:
@@ -99,6 +147,10 @@ class Args:
     """Entropy regularization coefficient."""
     autotune: bool = True
     """automatic tuning of the entropy coefficient"""
+    log_std_max: float = 2.0
+    """maximum log standard deviation for policy"""
+    log_std_min: float = -5.0
+    """minimum log standard deviation for policy"""
 
 
 class SoftQNetwork(nn.Module):
@@ -122,13 +174,10 @@ class SoftQNetwork(nn.Module):
         return x
 
 
-LOG_STD_MAX = 2
-LOG_STD_MIN = -5
-
-
 class Actor(nn.Module):
-    def __init__(self, obs_space, action_space):
+    def __init__(self, args, obs_space, action_space):
         super().__init__()
+        self.args = args
         num_observations = obs_space.flat_dim
         num_actions = action_space.flat_dim
         action_low = action_space.low
@@ -154,7 +203,7 @@ class Actor(nn.Module):
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
-        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)  # From SpinUp / Denis Yarats
+        log_std = self.args.log_std_min + 0.5 * (self.args.log_std_max - self.args.log_std_min) * (log_std + 1)  # From SpinUp / Denis Yarats
 
         return mean, log_std
 
@@ -185,7 +234,7 @@ class SAC:
         self.device = device
 
         # Initialize networks
-        self.actor = Actor(obs_space, action_space).to(device)
+        self.actor = Actor(args, obs_space, action_space).to(device)
         self.qf1 = SoftQNetwork(obs_space, action_space).to(device)
         self.qf2 = SoftQNetwork(obs_space, action_space).to(device)
         self.qf1_target = SoftQNetwork(obs_space, action_space).to(device)
@@ -223,7 +272,7 @@ class SAC:
 
     def pre_step(self, global_step, obs):
         if global_step < self.args.learning_starts:
-            actions = self.action_space.sample_tensor(self.args.num_envs,self.device)
+            actions = self.action_space.sample_tensor(self.args.num_envs, self.device)
         else:
             actions, _, _ = self.actor.get_action(obs)
         return actions
@@ -361,7 +410,6 @@ if __name__ == "__main__":
                     writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                     writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
                     break
-
 
     envs.close()
     writer.close()
