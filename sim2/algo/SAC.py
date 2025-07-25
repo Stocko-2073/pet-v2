@@ -178,15 +178,11 @@ class SAC:
     SAC (Soft Actor-Critic) algorithm implementation.
     """
 
-    def __init__(self, args, obs_space, action_space, initial_obs, env_step_fn, device, writer):
+    def __init__(self, args, obs_space, action_space, device):
         self.args = args
         self.obs_space = obs_space
         self.action_space = action_space
-        self.initial_obs = initial_obs
-        self.env_step_fn = env_step_fn
         self.device = device
-        self.writer = writer
-        self.rb = None  # Will be initialized in init()
 
         # Initialize networks
         self.actor = Actor(obs_space, action_space).to(device)
@@ -227,24 +223,13 @@ class SAC:
 
     def pre_step(self, global_step, obs):
         if global_step < self.args.learning_starts:
-            actions = np.array([self.action_space.sample() for _ in range(self.args.num_envs)])
+            actions = self.action_space.sample_tensor(self.args.num_envs,self.device)
         else:
-            actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
-            actions = actions.detach().cpu().numpy()
-
-        next_obs, rewards, terminations, truncations, infos = self.env_step_fn(actions)
-        return actions, next_obs, rewards, terminations, truncations, infos
+            actions, _, _ = self.actor.get_action(obs)
+        return actions
 
     def post_step(self, global_step, step_data):
         actions, next_obs, rewards, terminations, truncations, infos, obs = step_data
-
-        if "final_info" in infos:
-            for info in infos["final_info"]:
-                if info is not None:
-                    print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                    self.writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                    self.writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-                    break
 
         real_next_obs = next_obs.copy()
         for idx, trunc in enumerate(truncations):
@@ -341,14 +326,8 @@ if __name__ == "__main__":
     # Reset environment externally
     initial_obs, _ = envs.reset(seed=args.seed)
 
-
-    # Create environment interface functions
-    def env_step_fn(actions):
-        return envs.step(actions)
-
-
     # Create SAC with new interface
-    sac = SAC(args, obs_space, action_space, initial_obs, env_step_fn, device, writer)
+    sac = SAC(args, obs_space, action_space, initial_obs, device, writer)
 
     sac.init()
     obs = sac.initial_obs
@@ -357,21 +336,32 @@ if __name__ == "__main__":
     for global_step in range(args.total_timesteps):
         actions, next_obs, rewards, terminations, truncations, infos = sac.pre_step(global_step, obs)
 
+        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+
         step_data = (actions, next_obs, rewards, terminations, truncations, infos, obs)
         obs = sac.post_step(global_step, step_data, start_time)
 
         if global_step % 100 == 0:
-            self.writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-            self.writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-            self.writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-            self.writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-            self.writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
-            self.writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
-            self.writer.add_scalar("losses/alpha", self.alpha, global_step)
+            writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
+            writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
+            writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
+            writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
+            writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, global_step)
+            writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
+            writer.add_scalar("losses/alpha", sac.alpha, global_step)
             print("SPS:", int(global_step / (time.time() - start_time)))
-            self.writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
-            if self.args.autotune:
-                self.writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
+            writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+            if args.autotune:
+                writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
+
+        if "final_info" in infos:
+            for info in infos["final_info"]:
+                if info is not None:
+                    print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
+                    writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
+                    writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                    break
+
 
     envs.close()
     writer.close()
