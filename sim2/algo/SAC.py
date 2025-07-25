@@ -4,13 +4,11 @@ import random
 import time
 from dataclasses import dataclass
 
-import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import tyro
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -124,7 +122,6 @@ class Args:
     seed: int = 1
     total_timesteps: int = 1000000
     num_envs: int = 1
-
     buffer_size: int = int(1e6)
     """the replay memory buffer size"""
     gamma: float = 0.99
@@ -203,7 +200,8 @@ class Actor(nn.Module):
         mean = self.fc_mean(x)
         log_std = self.fc_logstd(x)
         log_std = torch.tanh(log_std)
-        log_std = self.args.log_std_min + 0.5 * (self.args.log_std_max - self.args.log_std_min) * (log_std + 1)  # From SpinUp / Denis Yarats
+        log_std = self.args.log_std_min + 0.5 * (self.args.log_std_max - self.args.log_std_min) * (
+                    log_std + 1)  # From SpinUp / Denis Yarats
 
         return mean, log_std
 
@@ -267,7 +265,6 @@ class SAC:
             self.action_space,
             self.device,
             n_envs=self.args.num_envs,
-            handle_timeout_termination=False,
         )
 
     def pre_step(self, global_step, obs):
@@ -337,11 +334,11 @@ class SAC:
         return next_obs
 
 
-if __name__ == "__main__":
-    args.env_id = "PET"
-    args.exp_name = "SAC"
+def example_usage(envs):
 
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    args = Args()
+    run_name = f"PET__SAC__{args.seed}__{int(time.time())}"
+
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -353,33 +350,18 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     device = torch.device("mps")
 
-    envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
-    )
-    assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
-
-    max_action = float(envs.single_action_space.high[0])
-
     # Create space objects
-    obs_space = Space(
-        shape=envs.single_observation_space.shape,
-        dtype=envs.single_observation_space.dtype
-    )
-    action_space = Space(
-        shape=envs.single_action_space.shape,
-        dtype=envs.single_action_space.dtype,
-        low=envs.single_action_space.low,
-        high=envs.single_action_space.high
-    )
+    obs_space = envs.obs_space
+    action_space = envs.action_space
 
     # Reset environment externally
-    initial_obs, _ = envs.reset(seed=args.seed)
+    initial_obs = envs.reset(seed=args.seed)
 
-    # Create SAC with new interface
-    sac = SAC(args, obs_space, action_space, initial_obs, device, writer)
+    # Create SAC algorithm
+    sac = SAC(args, obs_space, action_space, device)
 
     sac.init()
-    obs = sac.initial_obs
+    obs = initial_obs
 
     start_time = time.time()
     for global_step in range(args.total_timesteps):
@@ -411,5 +393,4 @@ if __name__ == "__main__":
                     writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
                     break
 
-    envs.close()
     writer.close()
