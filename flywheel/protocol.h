@@ -73,12 +73,16 @@ inline bool validate_message(const struct ProtocolMessage* msg) {
     return false;
   }
   
+  // Calculate checksum on header + payload (excluding checksum byte)
   uint8_t expected_checksum = calculate_checksum(
     (const uint8_t*)msg, 
     sizeof(struct ProtocolHeader) + msg->header.payload_len
   );
   
-  return msg->checksum == expected_checksum;
+  // Get checksum from correct position (immediately after payload)
+  uint8_t received_checksum = *((uint8_t*)msg + sizeof(struct ProtocolHeader) + msg->header.payload_len);
+  
+  return received_checksum == expected_checksum;
 }
 
 #endif // PROTOCOL_H
