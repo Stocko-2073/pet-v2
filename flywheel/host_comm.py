@@ -43,7 +43,7 @@ ERROR_MESSAGES = {
 @dataclass
 class SensorData:
     """Sensor data received from Arduino"""
-    delta_time_us: int
+    time_ms: int
     pwm_value: int
     current_mA: float
     voltage_V: float
@@ -104,8 +104,6 @@ class FlywheelComm:
         
         full_message = message + struct.pack('<B', checksum)
         
-        if self.debug:
-            print(f"TX: {full_message.hex()}")
         
         self.serial.write(full_message)
         self.serial.flush()
@@ -115,8 +113,6 @@ class FlywheelComm:
         # Read available data into buffer
         if self.serial.in_waiting:
             new_data = self.serial.read(self.serial.in_waiting)
-            if self.debug and new_data:
-                print(f"RX: {new_data.hex()}")
             self.rx_buffer.extend(new_data)
         
         # Look for complete message
@@ -158,9 +154,6 @@ class FlywheelComm:
             # Validate checksum
             calculated_checksum = self._calculate_checksum(message_data)
             if received_checksum != calculated_checksum:
-                if self.debug:
-                    print(f"Checksum mismatch: got {received_checksum:02x}, expected {calculated_checksum:02x}")
-                    print(f"Message: {message_data.hex()}")
                 # Bad checksum, remove this message and continue
                 del self.rx_buffer[:total_len]
                 continue
@@ -168,8 +161,6 @@ class FlywheelComm:
             # Extract payload
             payload = bytes(self.rx_buffer[4:4+payload_len])
             
-            if self.debug:
-                print(f"Valid message: type={msg_type:02x}, len={payload_len}, checksum OK")
             
             # Remove processed message from buffer
             del self.rx_buffer[:total_len]
@@ -192,7 +183,7 @@ class FlywheelComm:
         data = struct.unpack('<IHffi', payload)
         
         return SensorData(
-            delta_time_us=data[0],
+            time_ms=data[0],
             pwm_value=data[1],
             current_mA=data[2],
             voltage_V=data[3],
@@ -301,7 +292,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Flywheel communication test')
     parser.add_argument('port', help='Serial port (e.g., /dev/ttyUSB0 or COM3)')
-    parser.add_argument('--baudrate', type=int, default=2000000, help='Baud rate')
+    parser.add_argument('--baudrate', type=int, default=1000000, help='Baud rate')
     args = parser.parse_args()
     
     print(f"Connecting to {args.port} at {args.baudrate} baud...")
