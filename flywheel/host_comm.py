@@ -158,12 +158,18 @@ class FlywheelComm:
             # Validate checksum
             calculated_checksum = self._calculate_checksum(message_data)
             if received_checksum != calculated_checksum:
+                if self.debug:
+                    print(f"Checksum mismatch: got {received_checksum:02x}, expected {calculated_checksum:02x}")
+                    print(f"Message: {message_data.hex()}")
                 # Bad checksum, remove this message and continue
                 del self.rx_buffer[:total_len]
                 continue
                 
             # Extract payload
             payload = bytes(self.rx_buffer[4:4+payload_len])
+            
+            if self.debug:
+                print(f"Valid message: type={msg_type:02x}, len={payload_len}, checksum OK")
             
             # Remove processed message from buffer
             del self.rx_buffer[:total_len]

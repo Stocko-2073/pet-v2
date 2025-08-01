@@ -36,25 +36,37 @@ SensorReading getSampledReading(Adafruit_INA219 &sensor) {
 }
 
 void send_binary_message(uint8_t msg_type, const void* payload, uint8_t payload_len) {
-  struct ProtocolMessage msg;
+  // Build header
+  struct ProtocolHeader header;
+  header.header1 = PROTOCOL_HEADER_1;
+  header.header2 = PROTOCOL_HEADER_2;
+  header.msg_type = msg_type;
+  header.payload_len = payload_len;
   
-  // Set header
-  msg.header.header1 = PROTOCOL_HEADER_1;
-  msg.header.header2 = PROTOCOL_HEADER_2;
-  msg.header.msg_type = msg_type;
-  msg.header.payload_len = payload_len;
+  // Create temporary buffer for checksum calculation (header + payload)
+  uint8_t message_buffer[sizeof(struct ProtocolHeader) + PROTOCOL_MAX_PAYLOAD];
   
-  // Copy payload
+  // Copy header to buffer
+  memcpy(message_buffer, &header, sizeof(struct ProtocolHeader));
+  
+  // Copy payload to buffer if present
   if (payload && payload_len > 0) {
-    memcpy(msg.payload, payload, payload_len);
+    memcpy(message_buffer + sizeof(struct ProtocolHeader), payload, payload_len);
   }
   
-  // Calculate checksum
-  msg.checksum = calculate_checksum((const uint8_t*)&msg, 
-                                   sizeof(struct ProtocolHeader) + payload_len);
+  // Calculate checksum on header + payload
+  uint8_t checksum = calculate_checksum(message_buffer, sizeof(struct ProtocolHeader) + payload_len);
   
-  // Send message
-  Serial.write((const uint8_t*)&msg, sizeof(struct ProtocolHeader) + payload_len + 1);
+  // Send header
+  Serial.write((const uint8_t*)&header, sizeof(struct ProtocolHeader));
+  
+  // Send payload if present
+  if (payload && payload_len > 0) {
+    Serial.write((const uint8_t*)payload, payload_len);
+  }
+  
+  // Send checksum
+  Serial.write(&checksum, 1);
 }
 
 void send_sensor_data(uint32_t delta_time, uint16_t pwm, float current, float voltage, int32_t position) {
@@ -182,7 +194,7 @@ void setup() {
   delay(1000);
   Wire.begin();
   if (!ina219.begin()) {
-    Serial.println("ERROR: Failed to find INA219 sensor");
+    // INA219 sensor not found - halt execution
     while (1) { delay(10); }
   }
   
@@ -192,11 +204,8 @@ void setup() {
 
   ina219.setCalibration_32V_2A();
 
-  Serial.print("AS5600 ADDR: ");
-  Serial.println(as5600.getAddress());
-  int b = as5600.isConnected();
-  Serial.print("Connect: ");
-  Serial.println(b);
+  // Removed debug output to prevent interference with binary protocol
+  as5600.isConnected(); // Still check connection but don't print
 
   servo.attach(D0,544,2400);
 
