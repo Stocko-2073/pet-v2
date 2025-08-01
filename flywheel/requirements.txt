@@ -1,0 +1,2 @@
+# Binary protocol communication for flywheel Arduino controller
+pyserial>=3.5
