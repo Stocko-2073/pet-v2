@@ -17,9 +17,9 @@ def text_protocol_size() -> int:
 def binary_protocol_size() -> int:
     """Calculate size of binary protocol message"""
     # Header: 4 bytes (0xAA, 0x55, msg_type, payload_len)
-    # Payload: 24 bytes (sensor data)
+    # Payload: 18 bytes (sensor data)
     # Checksum: 1 byte
-    return 4 + 24 + 1  # 29 bytes total
+    return 4 + 18 + 1  # 23 bytes total
 
 def simulate_text_parsing(message: str) -> Dict[str, Any]:
     """Simulate parsing text protocol message"""
@@ -44,20 +44,17 @@ def simulate_binary_parsing(message: bytes) -> Dict[str, Any]:
     start_time = time.perf_counter()
     
     # Skip header (4 bytes) and extract payload
-    payload = message[4:28]  # 24 bytes of sensor data
+    payload = message[4:22]  # 18 bytes of sensor data
     
     # Unpack binary data (little-endian format)
-    data_tuple = struct.unpack('<IHffiHhh', payload)
+    data_tuple = struct.unpack('<IHffi', payload)
     
     data = {
         'delta_time_us': data_tuple[0],
         'pwm_value': data_tuple[1],
         'current_mA': data_tuple[2],
         'voltage_V': data_tuple[3],
-        'position': data_tuple[4],
-        'servo_position': data_tuple[5] / 10.0,
-        'bound_top': data_tuple[6],
-        'bound_bottom': data_tuple[7]
+        'position': data_tuple[4]
     }
     
     end_time = time.perf_counter()
@@ -70,17 +67,14 @@ def benchmark_parsing(iterations: int = 10000):
     text_msg = "D:123456,PWM:1023,C1:123.456,V1:12.345,P:1234567,P2:1800,t:3000,b:-3000\n"
     
     # Create equivalent binary message
-    binary_payload = struct.pack('<IHffiHhh', 
+    binary_payload = struct.pack('<IHffi', 
                                 123456,    # delta_time_us
                                 1023,      # pwm_value  
                                 123.456,   # current_mA
                                 12.345,    # voltage_V
-                                1234567,   # position
-                                1800,      # servo_position (degrees * 10)
-                                3000,      # bound_top
-                                -3000      # bound_bottom
+                                1234567    # position
                                )
-    binary_header = struct.pack('<BBBB', 0xAA, 0x55, 0x01, 24)
+    binary_header = struct.pack('<BBBB', 0xAA, 0x55, 0x01, 18)
     binary_msg = binary_header + binary_payload + b'\x00'  # dummy checksum
     
     print("Protocol Performance Comparison")
@@ -178,8 +172,6 @@ def demonstrate_protocol_features():
     
     print("3. Available Commands (Host → Arduino):")
     print("   0x10 - Set servo position")
-    print("   0x11 - Set position target (for PID control)")
-    print("   0x12 - Set control mode (manual/position)")
     print("   0x13 - Reset encoder position")
     print("   0x14 - Set sampling rate")
     print()
@@ -192,9 +184,9 @@ def demonstrate_protocol_features():
     print("   0x05 - Buffer overflow")
     print()
     
-    print("5. Control Modes:")
-    print("   Manual:   Arduino controls servo automatically")
-    print("   Position: Host sends position targets for PID control")
+    print("5. Control:")
+    print("   Servo movement is controlled entirely by host commands")
+    print("   No automatic movement - host has full control")
 
 if __name__ == "__main__":
     print("Flywheel Binary Protocol Performance Analysis")
@@ -209,9 +201,10 @@ if __name__ == "__main__":
     
     print("\nConclusion:")
     print("The binary protocol provides significant improvements in:")
-    print("• Data transmission efficiency (42% smaller messages)")
+    print("• Data transmission efficiency (70% smaller messages)")
     print("• Parsing performance (typically 5-10x faster)")
     print("• Network throughput (more messages per second)")
     print("• CPU utilization (less processing overhead)")
     print("• Reliability (checksums and structured validation)")
     print("• Functionality (bidirectional communication)")
+    print("• Simplicity (direct host control, no complex state machine)")

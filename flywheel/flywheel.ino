@@ -13,13 +13,8 @@ Servo servo;
 unsigned long _time;
 int pwmPin = A1;
 
-// Protocol and control variables
-uint8_t control_mode = CONTROL_MODE_MANUAL;
-int32_t position_target = 0;
+// Protocol variables
 uint16_t sample_rate = 100; // Hz
-float pid_kp = 1.0, pid_ki = 0.1, pid_kd = 0.05;
-float pid_integral = 0, pid_last_error = 0;
-unsigned long last_control_update = 0;
 
 struct SensorReading {
   float current_mA;
@@ -62,17 +57,13 @@ void send_binary_message(uint8_t msg_type, const void* payload, uint8_t payload_
   Serial.write((const uint8_t*)&msg, sizeof(struct ProtocolHeader) + payload_len + 1);
 }
 
-void send_sensor_data(uint32_t delta_time, uint16_t pwm, float current, float voltage, 
-                     int32_t position, uint16_t servo_pos, int16_t top, int16_t bottom) {
+void send_sensor_data(uint32_t delta_time, uint16_t pwm, float current, float voltage, int32_t position) {
   struct SensorDataPayload payload;
   payload.delta_time_us = delta_time;
   payload.pwm_value = pwm;
   payload.current_mA = current;
   payload.voltage_V = voltage;
   payload.position = position;
-  payload.servo_position = servo_pos;
-  payload.bound_top = top;
-  payload.bound_bottom = bottom;
   
   send_binary_message(MSG_TYPE_DATA, &payload, sizeof(payload));
 }
@@ -96,32 +87,6 @@ void process_command(uint8_t cmd_type, const uint8_t* payload, uint8_t payload_l
         uint16_t position_deg = cmd->position_deg_x10 / 10;
         if (position_deg <= 180) {
           servo.write(position_deg);
-        } else {
-          success = false;
-        }
-      } else {
-        success = false;
-      }
-      break;
-    }
-    
-    case CMD_SET_POSITION_TARGET: {
-      if (payload_len == sizeof(struct SetPositionTargetPayload)) {
-        struct SetPositionTargetPayload* cmd = (struct SetPositionTargetPayload*)payload;
-        position_target = cmd->target_position;
-      } else {
-        success = false;
-      }
-      break;
-    }
-    
-    case CMD_SET_CONTROL_MODE: {
-      if (payload_len == sizeof(struct SetControlModePayload)) {
-        struct SetControlModePayload* cmd = (struct SetControlModePayload*)payload;
-        if (cmd->mode <= CONTROL_MODE_POSITION) {
-          control_mode = cmd->mode;
-          pid_integral = 0; // Reset PID
-          pid_last_error = 0;
         } else {
           success = false;
         }
@@ -234,59 +199,16 @@ void setup() {
   Serial.println(b);
 
   servo.attach(D0,544,2400);
-  servo.write(180);
 
   _time = micros();
 }
 
 void loop() {
-  static bool dir = true;
-  static unsigned long t = 0;
-  static unsigned long r = 0;
   unsigned long delta = micros() - _time;
   _time += delta;
 
-  t += delta;
-  r += delta;
-
   // Check for incoming commands
   check_for_commands();
-
-  if (control_mode == CONTROL_MODE_MANUAL) {
-    // Original automatic movement
-    if (t > 300000) {
-      t -= 300000;
-      dir = !dir;
-      servo.write(dir ? 0 : 180);
-    }
-  } else if (control_mode == CONTROL_MODE_POSITION) {
-    // PID position control
-    unsigned long now = micros();
-    if (now - last_control_update >= 10000) { // 100Hz control loop
-      float dt = (now - last_control_update) / 1000000.0; // Convert to seconds
-      last_control_update = now;
-      
-      int32_t current_position = as5600.getCumulativePosition();
-      float error = position_target - current_position;
-      
-      // PID calculations
-      pid_integral += error * dt;
-      
-      // Integral windup protection
-      float max_integral = 1000.0;
-      if (pid_integral > max_integral) pid_integral = max_integral;
-      if (pid_integral < -max_integral) pid_integral = -max_integral;
-      
-      float derivative = (error - pid_last_error) / dt;
-      float output = pid_kp * error + pid_ki * pid_integral + pid_kd * derivative;
-      
-      // Convert PID output to servo position (map to 0-180 degrees)
-      float servo_position = 90 + constrain(output, -90, 90);
-      servo.write((int)servo_position);
-      
-      pid_last_error = error;
-    }
-  }
 
   SensorReading reading = getSampledReading(ina219);
   int32_t position = as5600.getCumulativePosition();
@@ -298,9 +220,6 @@ void loop() {
     pwm,                      // pwm_value
     reading.current_mA,       // current_mA
     reading.voltage_V,        // voltage_V
-    position,                 // position
-    (dir ? 0 : 180) * 10,    // servo_position (degrees * 10)
-    3000,                     // bound_top
-    -3000                     // bound_bottom
+    position                  // position
   );
 }

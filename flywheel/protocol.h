@@ -15,14 +15,8 @@
 
 // Command types
 #define CMD_SET_SERVO_POSITION 0x10
-#define CMD_SET_POSITION_TARGET 0x11
-#define CMD_SET_CONTROL_MODE 0x12
 #define CMD_RESET_ENCODER 0x13
 #define CMD_SET_SAMPLE_RATE 0x14
-
-// Control modes
-#define CONTROL_MODE_MANUAL 0
-#define CONTROL_MODE_POSITION 1
 
 // Message header structure
 struct ProtocolHeader {
@@ -32,29 +26,18 @@ struct ProtocolHeader {
   uint8_t payload_len;  // Payload length in bytes
 } __attribute__((packed));
 
-// Sensor data payload (24 bytes)
+// Sensor data payload (18 bytes)
 struct SensorDataPayload {
-  uint32_t delta_time_us;     // Time delta in microseconds
-  uint16_t pwm_value;         // PWM reading
-  float current_mA;           // Current in milliamps
-  float voltage_V;            // Voltage in volts
-  int32_t position;           // Encoder position
-  uint16_t servo_position;    // Servo position (degrees * 10)
-  int16_t bound_top;          // Top bound
-  int16_t bound_bottom;       // Bottom bound
+  uint32_t delta_time_us;     // Time delta in microseconds (4 bytes)
+  uint16_t pwm_value;         // PWM reading (2 bytes)
+  float current_mA;           // Current in milliamps (4 bytes)
+  float voltage_V;            // Voltage in volts (4 bytes)
+  int32_t position;           // Encoder position (4 bytes)
 } __attribute__((packed));
 
 // Command payloads
 struct SetServoPositionPayload {
   uint16_t position_deg_x10;  // Position in degrees * 10
-} __attribute__((packed));
-
-struct SetPositionTargetPayload {
-  int32_t target_position;    // Target encoder position
-} __attribute__((packed));
-
-struct SetControlModePayload {
-  uint8_t mode;              // Control mode (0=manual, 1=position)
 } __attribute__((packed));
 
 struct SetSampleRatePayload {

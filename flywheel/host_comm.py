@@ -22,14 +22,8 @@ class MessageType(IntEnum):
 
 class CommandType(IntEnum):
     SET_SERVO_POSITION = 0x10
-    SET_POSITION_TARGET = 0x11
-    SET_CONTROL_MODE = 0x12
     RESET_ENCODER = 0x13
     SET_SAMPLE_RATE = 0x14
-
-class ControlMode(IntEnum):
-    MANUAL = 0
-    POSITION = 1
 
 class ErrorCode(IntEnum):
     CHECKSUM = 0x01
@@ -54,9 +48,6 @@ class SensorData:
     current_mA: float
     voltage_V: float
     position: int
-    servo_position_deg: float
-    bound_top: int
-    bound_bottom: int
     timestamp: float  # Host-side timestamp
 
 @dataclass 
@@ -68,7 +59,7 @@ class CommandAck:
 class FlywheelComm:
     """High-performance binary communication with flywheel Arduino controller"""
     
-    def __init__(self, port: str, baudrate: int = 2000000, timeout: float = 0.1):
+    def __init__(self, port: str, baudrate: int = 2000000, timeout: float = 0.1, debug: bool = False):
         """
         Initialize communication with Arduino.
         
@@ -76,9 +67,11 @@ class FlywheelComm:
             port: Serial port path (e.g., '/dev/ttyUSB0' or 'COM3')
             baudrate: Communication speed (default: 2MHz)
             timeout: Read timeout in seconds
+            debug: Enable debug logging
         """
         self.serial = serial.Serial(port, baudrate, timeout=timeout)
         self.rx_buffer = bytearray()
+        self.debug = debug
         
     def __enter__(self):
         return self
@@ -110,6 +103,10 @@ class FlywheelComm:
         checksum = self._calculate_checksum(message)
         
         full_message = message + struct.pack('<B', checksum)
+        
+        if self.debug:
+            print(f"TX: {full_message.hex()}")
+        
         self.serial.write(full_message)
         self.serial.flush()
     
@@ -117,7 +114,10 @@ class FlywheelComm:
         """Read and parse binary message from Arduino"""
         # Read available data into buffer
         if self.serial.in_waiting:
-            self.rx_buffer.extend(self.serial.read(self.serial.in_waiting))
+            new_data = self.serial.read(self.serial.in_waiting)
+            if self.debug and new_data:
+                print(f"RX: {new_data.hex()}")
+            self.rx_buffer.extend(new_data)
         
         # Look for complete message
         while len(self.rx_buffer) >= 4:  # Minimum header size
@@ -179,11 +179,11 @@ class FlywheelComm:
             return None
             
         msg_type, payload = msg
-        if len(payload) != 24:  # Expected sensor data size
+        if len(payload) != 18:  # Expected sensor data size
             return None
             
         # Unpack sensor data (little-endian)
-        data = struct.unpack('<IHffiHhh', payload)
+        data = struct.unpack('<IHffi', payload)
         
         return SensorData(
             delta_time_us=data[0],
@@ -191,9 +191,6 @@ class FlywheelComm:
             current_mA=data[2],
             voltage_V=data[3],
             position=data[4],
-            servo_position_deg=data[5] / 10.0,  # Convert from degrees*10
-            bound_top=data[6],
-            bound_bottom=data[7],
             timestamp=time.time()
         )
     
@@ -249,47 +246,6 @@ class FlywheelComm:
                 return ack.success
         return False
     
-    def set_position_target(self, target_position: int) -> bool:
-        """
-        Set target position for position control mode
-        
-        Args:
-            target_position: Target encoder position
-            
-        Returns:
-            True if command was acknowledged successfully
-        """
-        payload = struct.pack('<i', target_position)
-        cmd_payload = struct.pack('<B', CommandType.SET_POSITION_TARGET) + payload
-        self._send_message(MessageType.DATA, cmd_payload)
-        
-        start_time = time.time()
-        while time.time() - start_time < 1.0:
-            ack = self.read_command_ack()
-            if ack and ack.command_type == CommandType.SET_POSITION_TARGET:
-                return ack.success
-        return False
-    
-    def set_control_mode(self, mode: ControlMode) -> bool:
-        """
-        Set control mode (manual or position control)
-        
-        Args:
-            mode: Control mode (MANUAL or POSITION)
-            
-        Returns:
-            True if command was acknowledged successfully
-        """
-        payload = struct.pack('<B', int(mode))
-        cmd_payload = struct.pack('<B', CommandType.SET_CONTROL_MODE) + payload
-        self._send_message(MessageType.DATA, cmd_payload)
-        
-        start_time = time.time()
-        while time.time() - start_time < 1.0:
-            ack = self.read_command_ack()
-            if ack and ack.command_type == CommandType.SET_CONTROL_MODE:
-                return ack.success
-        return False
     
     def reset_encoder(self) -> bool:
         """
@@ -351,12 +307,6 @@ if __name__ == "__main__":
             # Test commands
             print("Testing commands...")
             
-            print("Setting control mode to manual...")
-            if comm.set_control_mode(ControlMode.MANUAL):
-                print("✓ Control mode set successfully")
-            else:
-                print("✗ Failed to set control mode")
-            
             print("Setting servo position to 90 degrees...")
             if comm.set_servo_position(90.0):
                 print("✓ Servo position set successfully")
@@ -381,8 +331,7 @@ if __name__ == "__main__":
                     if count % 10 == 0:  # Print every 10th reading
                         print(f"Position: {data.position:6d}, "
                               f"Current: {data.current_mA:6.1f}mA, "
-                              f"Voltage: {data.voltage_V:5.2f}V, "
-                              f"Servo: {data.servo_position_deg:5.1f}°")
+                              f"Voltage: {data.voltage_V:5.2f}V")
                 
                 # Check for errors
                 error = comm.read_error()
