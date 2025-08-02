@@ -30,37 +30,36 @@ class FlywheelEnv:
         """Thread function: Unified serial communication - handles both servo control and data collection"""
         while True:
             if self.comm:
-                if self.reset_env:
-                    self.reset_env = False
-                    # Reset encoder position
-                    self.comm.reset_encoder()
-                    time.sleep(0.1)  # Allow reset to complete
+                # Send servo command and track statistics
+                try:
+                    if self.reset_env:
+                        self.reset_env = False
+                        # Reset encoder position
+                        self.comm.reset_encoder()
+                        time.sleep(0.1)  # Allow reset to complete
 
-                    # Set servo to neutral position
-                    self.comm.set_servo_position(90.0)
-                    time.sleep(0.1)
+                        # Set servo to neutral position
+                        self.comm.set_servo_position(90.0)
+                        time.sleep(0.1)
 
-                # Update servo position
-                if self.servo_position != self.last_servo_position:
-
-                    # Send servo command and track statistics
-                    try:
+                    # Update servo position
+                    if self.servo_position != self.last_servo_position:
                         if self.comm.set_servo_position(self.servo_position):
                             self.last_servo_position = self.servo_position
-                    except Exception:
-                        # Suppress timeout exception messages to avoid spam
-                        pass
+                    # Read sensor data
+                    data = self.comm.read_sensor_data()
+                    if data:
+                        self.sensor_data = data
 
-                # Read sensor data
-                data = self.comm.read_sensor_data()
-                if data:
-                    self.sensor_data = data
+                    # Check for errors
+                    error = self.comm.read_error()
+                    if error is not None:
+                        error_msg = ERROR_MESSAGES.get(error, f"Unknown error: {error}")
+                        print(f"Protocol error: {error_msg}")
 
-                # Check for errors
-                error = self.comm.read_error()
-                if error is not None:
-                    error_msg = ERROR_MESSAGES.get(error, f"Unknown error: {error}")
-                    print(f"Protocol error: {error_msg}")
+                except Exception:
+                    # Suppress timeout exception messages to avoid spam
+                    pass
 
             # Small sleep to prevent overwhelming the system
             time.sleep(0.001)  # 1ms
