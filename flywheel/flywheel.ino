@@ -34,7 +34,7 @@ void send_binary_message(uint8_t msg_type, const void *payload, uint8_t payload_
   Serial.write(&checksum, 1);
 }
 
-void send_sensor_data(uint64_t time_us, uint16_t pwm, float current, float voltage, int32_t position) {
+void send_sensor_data(uint64_t time_us, uint16_t pwm, float current, float voltage, float position) {
   struct SensorDataPayload payload;
   payload.time_us = time_us;
   payload.pwm_value = pwm;
@@ -191,14 +191,15 @@ void loop() {
     int pwm = analogRead(A1);
     float current_mA = ina219.getCurrent_mA();
     float voltage_V = ina219.getBusVoltage_V();
-    int32_t position = as5600.getCumulativePosition();
+    int32_t raw_position = as5600.getCumulativePosition();
+    float position_degrees = raw_position * AS5600_RAW_TO_DEGREES;
 
     send_sensor_data(
         time_us,
         pwm,
         current_mA,
         voltage_V,
-        position
+        position_degrees
     );
   //}
 

@@ -32,7 +32,7 @@ struct SensorDataPayload {
   uint16_t pwm_value;         // PWM reading (2 bytes)
   float current_mA;           // Current in milliamps (4 bytes)
   float voltage_V;            // Voltage in volts (4 bytes)
-  int32_t position;           // Encoder position (4 bytes)
+  float position;             // Encoder position in degrees (4 bytes)
 } __attribute__((packed));
 
 // Command payloads

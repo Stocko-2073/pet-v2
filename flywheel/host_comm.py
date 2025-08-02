@@ -180,7 +180,7 @@ class FlywheelComm:
             return None
             
         # Unpack sensor data (little-endian)
-        data = struct.unpack('<QHffi', payload)
+        data = struct.unpack('<QHfff', payload)
         
         return SensorData(
             time_us=data[0],

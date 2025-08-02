@@ -95,7 +95,7 @@ class FlywheelEnv:
         self.target_position = 0
         self.target_tolerance = target_tolerance
         self.target_change_probability = 0.1  # Chance to change target each episode
-        self.possible_targets = [-1000, -500, 0, 500, 1000]  # Example target positions
+        self.possible_targets = [0, 45, 90, 135, 180]  # Example target positions
         
         # Position history for oscillation detection
         self.position_history_size = position_history_size
@@ -143,7 +143,12 @@ class FlywheelEnv:
         self.time_in_tolerance = 0
         self.consecutive_stable_steps = 0
         self.last_action = None
-        
+
+        print(f"Moving servo position to {self.servo_position}")
+        self.servo_position=random.uniform(self.action_space_low,self.action_space_high)
+        time.sleep(0.5)
+        print(f"Servo moved to {self.servo_position}")
+
         # Randomly set a new target position for this episode
         if random.random() < self.target_change_probability or self.target_position == 0:
             self.target_position = random.choice(self.possible_targets)

@@ -47,11 +47,11 @@ class DataCollector:
         state = self.env.reset()
         steps = []
         total_return = 0.0
-        
+
+        # Random action
+        action = np.random.uniform(self.env.action_space_low, self.env.action_space_high)
         for t in range(max_steps):
-            # Random action
-            action = np.random.uniform(self.env.action_space_low, self.env.action_space_high)
-            
+
             next_state, reward, done, info = self.env.step(action)
             
             step = TrajectoryStep(
@@ -311,11 +311,6 @@ def train_decision_transformer(
                 'max_length': context_length,
                 'n_layer': n_layers,
                 'n_head': n_heads
-            },
-            'training_info': {
-                'num_trajectories': len(trajectories),
-                'num_sequences': len(dataset),
-                'final_loss': losses[-1] if losses else 0.0
             }
         }, save_path)
         
@@ -341,7 +336,7 @@ def test_trained_model(port: str, model_path: str = 'flywheel_dt_model.pt', num_
     print(f"Testing model from {model_path}")
     
     # Load model config
-    checkpoint = torch.load(model_path, map_location='cpu')
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
     config = checkpoint['config']
     
     # Create controller
