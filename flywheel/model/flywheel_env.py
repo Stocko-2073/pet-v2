@@ -11,10 +11,12 @@ import sys
 import os
 from collections import deque
 import random
+import threading
 
 # Add parent directory to path to import host_comm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from host_comm import FlywheelComm, SensorData
+from host_comm import FlywheelComm,SensorData,ERROR_MESSAGES
+
 
 class FlywheelEnv:
     """
@@ -23,14 +25,60 @@ class FlywheelEnv:
     State: [time_us, pwm_value, current_mA, voltage_V, position]
     Action: servo_position (0-180 degrees)
     """
-    
-    def __init__(self, port: str, baudrate: int = 2000000, max_episode_steps: int = 1000, 
+
+    def _communication_loop(self):
+        """Thread function: Unified serial communication - handles both servo control and data collection"""
+        while True:
+            if self.comm:
+                if self.reset_env:
+                    self.reset_env = False
+                    # Reset encoder position
+                    self.comm.reset_encoder()
+                    time.sleep(0.1)  # Allow reset to complete
+
+                    # Set servo to neutral position
+                    self.comm.set_servo_position(90.0)
+                    time.sleep(0.1)
+
+                # Update servo position
+                if self.servo_position != self.last_servo_position:
+
+                    # Send servo command and track statistics
+                    try:
+                        if self.comm.set_servo_position(self.servo_position):
+                            self.last_servo_position = self.servo_position
+                    except Exception:
+                        # Suppress timeout exception messages to avoid spam
+                        pass
+
+                # Read sensor data
+                data = self.comm.read_sensor_data()
+                if data:
+                    self.sensor_data = data
+
+                # Check for errors
+                error = self.comm.read_error()
+                if error is not None:
+                    error_msg = ERROR_MESSAGES.get(error, f"Unknown error: {error}")
+                    print(f"Protocol error: {error_msg}")
+
+            # Small sleep to prevent overwhelming the system
+            time.sleep(0.001)  # 1ms
+
+    def __init__(self, port: str, baudrate: int = 2000000, max_episode_steps: int = 1000,
                  position_history_size: int = 20, target_tolerance: float = 100.0):
         self.port = port
         self.baudrate = baudrate
         self.max_episode_steps = max_episode_steps
         self.comm = None
-        
+
+        self.servo_position = 0
+        self.last_servo_position = 0
+        self.sensor_data = None
+        self.communication_thread: Optional[threading.Thread] = None
+        self.communication_thread = threading.Thread(target=self._communication_loop, daemon=True)
+        self.communication_thread.start()
+
         # State space: 5 dimensions
         self.observation_space_low = np.array([0, 0, -5000, 0, -100000], dtype=np.float32)
         self.observation_space_high = np.array([1e9, 1023, 5000, 15, 100000], dtype=np.float32)
@@ -62,6 +110,8 @@ class FlywheelEnv:
         self.consecutive_stable_steps = 0
         self.stability_threshold = 50.0  # Position velocity threshold for "stable"
         self.last_action = None  # For action smoothness reward
+
+        self.reset()
         
     def connect(self):
         """Connect to the flywheel device"""
@@ -79,15 +129,9 @@ class FlywheelEnv:
         """Reset the environment for a new episode"""
         if not self.comm:
             self.connect()
-        
-        # Reset encoder position
-        self.comm.reset_encoder()
-        time.sleep(0.1)  # Allow reset to complete
-        
-        # Set servo to neutral position
-        self.comm.set_servo_position(90.0)
-        time.sleep(0.1)
-        
+
+        self.reset_env = True
+
         # Reset episode tracking
         self.current_step = 0
         self.episode_start_time = time.time()
@@ -124,15 +168,17 @@ class FlywheelEnv:
             done: Whether episode is finished
             info: Additional information
         """
+        success = True
+
         # Clip action to valid range
         action = np.clip(action, self.action_space_low, self.action_space_high)
         
-        # Send command to device
-        success = self.comm.set_servo_position(float(action))
-        
-        # Wait a bit for the action to take effect
+        # Send the action to device
+        self.servo_position = action
+
+        # Wait a bit for the action to take effect ~100Hz
         time.sleep(0.01)
-        
+
         # Get new state
         new_state = self._get_state()
         
@@ -157,21 +203,11 @@ class FlywheelEnv:
     def _get_state(self) -> np.ndarray:
         """Get current state from sensors"""
         # Try to get sensor data with timeout
-        start_time = time.time()
-        sensor_data = None
-        
-        while sensor_data is None and (time.time() - start_time) < 0.5:
-            sensor_data = self.comm.read_sensor_data()
-            if sensor_data is None:
-                time.sleep(0.001)  # Short wait before retry
-        
-        if sensor_data is None:
-            # If we can't get new data, return last known state or zeros
-            if self.last_state is not None:
-                return self.last_state
-            else:
-                return np.zeros(5, dtype=np.float32)
-        
+        sensor_data = self.sensor_data
+        while sensor_data is None:
+            sensor_data = self.sensor_data
+            time.sleep(0.001)
+
         # Convert to normalized state vector
         raw_state = np.array([
             float(sensor_data.time_us),
