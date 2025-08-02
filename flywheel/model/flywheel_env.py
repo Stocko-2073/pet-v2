@@ -72,11 +72,32 @@ class FlywheelEnv:
         self.comm = None
 
         self.servo_position = 0
-        self.last_servo_position = 0
+        self.last_servo_position = 180
         self.sensor_data = None
+        self.reset_env = False
         self.communication_thread: Optional[threading.Thread] = None
         self.communication_thread = threading.Thread(target=self._communication_loop, daemon=True)
         self.communication_thread.start()
+
+
+        # Home the servo and calibrate the position sensor
+        if not self.comm:
+            self.connect()
+        print("Homing Servo")
+        self.servo_position=0
+        time.sleep(3)
+        while self.sensor_data is None:
+            time.sleep(0.01)
+        last_sensor_data = self.sensor_data
+        while True:
+            time.sleep(0.01)
+            if self.sensor_data.position == last_sensor_data.position:
+                break
+        self.reset_env = True
+        while self.reset_env:
+            time.sleep(0.01)
+        print("done.")
+
 
         # State space: 5 dimensions
         self.observation_space_low = np.array([0, 0, -5000, 0, -100000], dtype=np.float32)
@@ -129,8 +150,6 @@ class FlywheelEnv:
         if not self.comm:
             self.connect()
 
-        self.reset_env = True
-
         # Reset episode tracking
         self.current_step = 0
         self.episode_start_time = time.time()
@@ -144,9 +163,9 @@ class FlywheelEnv:
         self.consecutive_stable_steps = 0
         self.last_action = None
 
-        print(f"Moving servo position to {self.servo_position}")
         self.servo_position=random.uniform(self.action_space_low,self.action_space_high)
-        time.sleep(0.5)
+        print(f"Moving servo position to {self.servo_position}")
+        time.sleep(0.4)
         print(f"Servo moved to {self.servo_position}")
 
         # Randomly set a new target position for this episode
@@ -214,7 +233,7 @@ class FlywheelEnv:
 
         # Convert to normalized state vector
         raw_state = np.array([
-            float(sensor_data.time_us),
+            0,#float(sensor_data.time_us),
             float(sensor_data.pwm_value),
             sensor_data.current_mA,
             sensor_data.voltage_V,
