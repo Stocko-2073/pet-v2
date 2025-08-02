@@ -174,7 +174,7 @@ void setup() {
 
   servo.attach(D0, 544, 2400);
   accumulator = 0;
-  sample_interval = 1000000 / sample_rate;
+  sample_interval = 1000000 / sample_rate - 350;
   last_time_us = micros();
 }
 
@@ -183,8 +183,9 @@ void loop() {
   accumulator += (time_us - last_time_us);
   last_time_us = time_us;
 
-  if (accumulator >= sample_interval) {
-    accumulator -= sample_interval;
+  check_for_commands();
+  //if (accumulator >= sample_interval) {
+  //  accumulator -= sample_interval;
 
     // Read sensors
     int pwm = analogRead(A1);
@@ -192,7 +193,6 @@ void loop() {
     float voltage_V = ina219.getBusVoltage_V();
     int32_t position = as5600.getCumulativePosition();
 
-	check_for_commands();
     send_sensor_data(
         time_us,
         pwm,
@@ -200,6 +200,6 @@ void loop() {
         voltage_V,
         position
     );
-  }
+  //}
 
 }
