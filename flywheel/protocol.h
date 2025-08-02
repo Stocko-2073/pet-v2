@@ -17,6 +17,7 @@
 #define CMD_SET_SERVO_POSITION 0x10
 #define CMD_RESET_ENCODER 0x13
 #define CMD_SET_SAMPLE_RATE 0x14
+#define CMD_SET_SERVO_ENABLE 0x15
 
 // Message header structure
 struct ProtocolHeader {
@@ -42,6 +43,10 @@ struct SetServoPositionPayload {
 
 struct SetSampleRatePayload {
   uint16_t samples_per_sec;  // Sampling rate
+} __attribute__((packed));
+
+struct SetServoEnablePayload {
+  uint8_t enabled;  // 1 = enabled, 0 = disabled
 } __attribute__((packed));
 
 // Complete message structure

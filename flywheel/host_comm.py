@@ -24,6 +24,7 @@ class CommandType(IntEnum):
     SET_SERVO_POSITION = 0x10
     RESET_ENCODER = 0x13
     SET_SAMPLE_RATE = 0x14
+    SET_SERVO_ENABLE = 0x15
 
 class ErrorCode(IntEnum):
     CHECKSUM = 0x01
@@ -243,6 +244,27 @@ class FlywheelComm:
                 return ack.success
         return False
     
+    def set_servo_enable(self, enabled: bool) -> bool:
+        """
+        Enable or disable servo by attaching/detaching it
+        
+        Args:
+            enabled: True to attach servo, False to detach
+            
+        Returns:
+            True if command was acknowledged successfully
+        """
+        payload = struct.pack('<B', 1 if enabled else 0)
+        cmd_payload = struct.pack('<B', CommandType.SET_SERVO_ENABLE) + payload
+        self._send_message(MessageType.DATA, cmd_payload)
+        
+        # Wait for acknowledgment
+        start_time = time.time()
+        while time.time() - start_time < 1.0:  # 1 second timeout
+            ack = self.read_command_ack()
+            if ack and ack.command_type == CommandType.SET_SERVO_ENABLE:
+                return ack.success
+        return False
     
     def reset_encoder(self) -> bool:
         """

@@ -93,6 +93,20 @@ void process_command(uint8_t cmd_type, const uint8_t *payload, uint8_t payload_l
       break;
     }
 
+    case CMD_SET_SERVO_ENABLE: {
+      if (payload_len == sizeof(struct SetServoEnablePayload)) {
+        struct SetServoEnablePayload *cmd = (struct SetServoEnablePayload *) payload;
+        if (cmd->enabled) {
+          servo.attach(D0, 544, 2400);
+        } else {
+          servo.detach();
+        }
+      } else {
+        success = false;
+      }
+      break;
+    }
+
     default:success = false;
       break;
   }
