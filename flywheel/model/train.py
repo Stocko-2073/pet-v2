@@ -148,12 +148,15 @@ class DecisionTransformerDataset:
                 for i in range(start_idx, end_idx):
                     step = traj.steps[i]
                     seq_states.append(step.state)
-                    seq_actions.append([step.action])  # Make it 1D array
+                    
+                    # Normalize action to [-1, +1] range for tanh model
+                    normalized_action = (step.action - 90.0) / 90.0  # Convert 0-180 to -1,+1
+                    seq_actions.append([normalized_action])
+                    
                     seq_rtg.append([returns_to_go[i] / self.rtg_scale])  # Normalize RTG
                     seq_timesteps.append(step.timestep)
                 
-                # Target actions are the actions we want to predict
-                # For Decision Transformer, we predict the same actions (supervised learning on expert demonstrations)
+                # Target actions are the actions we want to predict (already normalized)
                 target_actions = seq_actions.copy()
                 
                 self.sequences.append({
@@ -225,7 +228,7 @@ def train_decision_transformer(
     hidden_size: int = 128,
     n_layers: int = 3,
     n_heads: int = 4,
-    learning_rate: float = 1e-4,
+    learning_rate: float = 1e-5,  # Reduced from 1e-4
     batch_size: int = 64,
     num_epochs: int = 100,
     save_path: str = 'flywheel_dt_model.pt',

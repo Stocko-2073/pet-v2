@@ -195,10 +195,21 @@ class DecisionTransformerTrainer:
         # Compute loss (MSE for continuous actions)
         loss = F.mse_loss(action_preds, target_actions)
         
+        # Debug: Print loss components occasionally
+        if hasattr(self, 'step_count'):
+            self.step_count += 1
+        else:
+            self.step_count = 1
+            
+        if self.step_count % 100 == 0:  # Print every 100 steps
+            pred_range = f"[{action_preds.min().item():.3f}, {action_preds.max().item():.3f}]"
+            target_range = f"[{target_actions.min().item():.3f}, {target_actions.max().item():.3f}]"
+            print(f"Step {self.step_count}: Loss={loss.item():.6f}, Pred range={pred_range}, Target range={target_range}")
+        
         # Backward pass
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         self.optimizer.step()
         
         return loss.item()
@@ -311,8 +322,9 @@ class FlywheelController:
         # Clip to valid range
         action = np.clip(action, 0.0, 180.0)
         
-        # Add to action history
-        self.action_history.append(np.array([action]))
+        # Add normalized action to history (for next prediction)
+        normalized_action = (action - self.action_offset) / self.action_scale
+        self.action_history.append(np.array([normalized_action]))
         self.timestep += 1
         
         return action
