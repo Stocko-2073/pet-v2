@@ -26,9 +26,9 @@ struct ProtocolHeader {
   uint8_t payload_len;  // Payload length in bytes
 } __attribute__((packed));
 
-// Sensor data payload (18 bytes)
+// Sensor data payload (22 bytes)
 struct SensorDataPayload {
-  uint32_t time_ms;           // Time since boot in milliseconds (4 bytes)
+  uint64_t time_us;           // Time since boot in microseconds (8 bytes)
   uint16_t pwm_value;         // PWM reading (2 bytes)
   float current_mA;           // Current in milliamps (4 bytes)
   float voltage_V;            // Voltage in volts (4 bytes)

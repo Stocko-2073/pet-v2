@@ -43,7 +43,7 @@ ERROR_MESSAGES = {
 @dataclass
 class SensorData:
     """Sensor data received from Arduino"""
-    time_ms: int
+    time_us: int
     pwm_value: int
     current_mA: float
     voltage_V: float
@@ -59,7 +59,7 @@ class CommandAck:
 class FlywheelComm:
     """High-performance binary communication with flywheel Arduino controller"""
     
-    def __init__(self, port: str, baudrate: int = 2000000, timeout: float = 0.1, debug: bool = False):
+    def __init__(self, port: str, baudrate: int = 2000000, timeout: float = 0.2, debug: bool = False):
         """
         Initialize communication with Arduino.
         
@@ -176,14 +176,14 @@ class FlywheelComm:
             return None
             
         msg_type, payload = msg
-        if len(payload) != 18:  # Expected sensor data size
+        if len(payload) != 22:  # Expected sensor data size
             return None
             
         # Unpack sensor data (little-endian)
-        data = struct.unpack('<IHffi', payload)
+        data = struct.unpack('<QHffi', payload)
         
         return SensorData(
-            time_ms=data[0],
+            time_us=data[0],
             pwm_value=data[1],
             current_mA=data[2],
             voltage_V=data[3],
@@ -336,8 +336,7 @@ if __name__ == "__main__":
                     error_msg = ERROR_MESSAGES.get(error, f"Unknown error code: {error}")
                     print(f"Error received: {error_msg}")
                 
-                time.sleep(0.01)  # Small delay
-            
+
             print(f"\nReceived {count} sensor readings in 10 seconds")
             print(f"Average rate: {count/10.0:.1f} Hz")
             
