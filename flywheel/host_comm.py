@@ -49,6 +49,7 @@ class SensorData:
     current_mA: float
     voltage_V: float
     position: int
+    servo_enabled: bool
     timestamp: float  # Host-side timestamp
 
 @dataclass 
@@ -177,11 +178,11 @@ class FlywheelComm:
             return None
             
         msg_type, payload = msg
-        if len(payload) != 22:  # Expected sensor data size
+        if len(payload) != 23:  # Expected sensor data size (updated for servo_enabled)
             return None
             
-        # Unpack sensor data (little-endian)
-        data = struct.unpack('<QHfff', payload)
+        # Unpack sensor data (little-endian): uint64, uint16, float, float, float, uint8
+        data = struct.unpack('<QHfffB', payload)
         
         return SensorData(
             time_us=data[0],
@@ -189,6 +190,7 @@ class FlywheelComm:
             current_mA=data[2],
             voltage_V=data[3],
             position=data[4],
+            servo_enabled=bool(data[5]),
             timestamp=time.time()
         )
     

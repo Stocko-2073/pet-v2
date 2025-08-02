@@ -13,6 +13,7 @@ uint64_t accumulator;
 // Protocol variables
 uint16_t sample_rate = 100; // Hz
 uint64_t sample_interval;
+bool servo_enabled = true; // Track servo enable state
 
 void send_binary_message(uint8_t msg_type, const void *payload, uint8_t payload_len) {
   struct ProtocolHeader header;
@@ -34,13 +35,14 @@ void send_binary_message(uint8_t msg_type, const void *payload, uint8_t payload_
   Serial.write(&checksum, 1);
 }
 
-void send_sensor_data(uint64_t time_us, uint16_t pwm, float current, float voltage, float position) {
+void send_sensor_data(uint64_t time_us, uint16_t pwm, float current, float voltage, float position, bool servo_enabled) {
   struct SensorDataPayload payload;
   payload.time_us = time_us;
   payload.pwm_value = pwm;
   payload.current_mA = current;
   payload.voltage_V = voltage;
   payload.position = position;
+  payload.servo_enabled = servo_enabled ? 1 : 0;
 
   send_binary_message(MSG_TYPE_DATA, &payload, sizeof(payload));
 }
@@ -98,8 +100,10 @@ void process_command(uint8_t cmd_type, const uint8_t *payload, uint8_t payload_l
         struct SetServoEnablePayload *cmd = (struct SetServoEnablePayload *) payload;
         if (cmd->enabled) {
           servo.attach(D0, 544, 2400);
+          servo_enabled = true;
         } else {
           servo.detach();
+          servo_enabled = false;
         }
       } else {
         success = false;
@@ -213,7 +217,8 @@ void loop() {
         pwm,
         current_mA,
         voltage_V,
-        position_degrees
+        position_degrees,
+        servo_enabled
     );
   //}
 
