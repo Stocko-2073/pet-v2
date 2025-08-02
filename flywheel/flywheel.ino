@@ -34,9 +34,9 @@ void send_binary_message(uint8_t msg_type, const void *payload, uint8_t payload_
   Serial.write(&checksum, 1);
 }
 
-void send_sensor_data(uint32_t time_ms, uint16_t pwm, float current, float voltage, int32_t position) {
+void send_sensor_data(uint64_t time_us, uint16_t pwm, float current, float voltage, int32_t position) {
   struct SensorDataPayload payload;
-  payload.time_ms = time_ms;
+  payload.time_us = time_us;
   payload.pwm_value = pwm;
   payload.current_mA = current;
   payload.voltage_V = voltage;
@@ -155,8 +155,7 @@ void check_for_commands() {
 }
 
 void setup() {
-  Serial.begin(1000000);
-  delay(1000);
+  Serial.begin(2000000);
   Wire.begin();
   if (!ina219.begin()) {
     // TODO: Implement an error report packet
@@ -174,14 +173,13 @@ void setup() {
   as5600.isConnected(); // Still check connection but don't print
 
   servo.attach(D0, 544, 2400);
-  last_time_us = micros();
   accumulator = 0;
   sample_interval = 1000000 / sample_rate;
+  last_time_us = micros();
 }
 
 void loop() {
   uint64_t time_us = micros();
-  uint32_t time_ms = (uint32_t)(time_us / 1000);
   accumulator += (time_us - last_time_us);
   last_time_us = time_us;
 
@@ -194,8 +192,9 @@ void loop() {
     float voltage_V = ina219.getBusVoltage_V();
     int32_t position = as5600.getCumulativePosition();
 
+	check_for_commands();
     send_sensor_data(
-        time_ms,
+        time_us,
         pwm,
         current_mA,
         voltage_V,
@@ -203,5 +202,4 @@ void loop() {
     );
   }
 
-  check_for_commands();
 }
