@@ -60,7 +60,7 @@ class DecisionTransformer(nn.Module):
         self.embed_action = nn.Linear(action_dim, hidden_size)
         self.embed_return = nn.Linear(1, hidden_size)  # Return-to-go
         
-        # Positional encoding
+        # Positional encoding (increased size for [r,s,a] triplets)
         self.pos_encoding = PositionalEncoding(hidden_size, max_length * 3)
         
         # Transformer
@@ -72,7 +72,7 @@ class DecisionTransformer(nn.Module):
             dim_feedforward=4 * hidden_size,
             dropout=dropout,
             activation=activation,
-            batch_first=False
+            batch_first=True
         )
         self.transformer = nn.TransformerEncoder(transformer_layer, num_layers=n_layer)
         
@@ -102,30 +102,29 @@ class DecisionTransformer(nn.Module):
         return_embeddings = self.embed_return(returns_to_go)  # (batch, seq_len, hidden)
         
         # Create sequence: [r_0, s_0, a_0, r_1, s_1, a_1, ...]
-        # We'll predict actions, so the sequence is [r_t, s_t] -> a_t
+        # For each timestep t, we use [r_t, s_t] to predict action a_t
         sequence_embeddings = []
         
         for t in range(seq_length):
             sequence_embeddings.append(return_embeddings[:, t])  # r_t
             sequence_embeddings.append(state_embeddings[:, t])   # s_t
-            if t < seq_length - 1:  # Don't include last action (we're predicting it)
-                sequence_embeddings.append(action_embeddings[:, t])  # a_t
+            sequence_embeddings.append(action_embeddings[:, t])  # a_t (include all actions for consistent length)
         
-        # Stack embeddings: (batch, seq_len*2 or seq_len*3-1, hidden)
+        # Stack embeddings: (batch, seq_len*3, hidden)
         stacked_inputs = torch.stack(sequence_embeddings, dim=1)
         
         # Add positional encoding and normalize
-        stacked_inputs = self.pos_encoding(stacked_inputs.transpose(0, 1))  # (seq, batch, hidden)
+        stacked_inputs = self.pos_encoding(stacked_inputs)
         stacked_inputs = self.embed_ln(stacked_inputs)
         
-        # Apply transformer
-        transformer_outputs = self.transformer(stacked_inputs)  # (seq, batch, hidden)
+        # Apply transformer (now batch_first=True)
+        transformer_outputs = self.transformer(stacked_inputs)  # (batch, seq_len*3, hidden)
         
         # Extract state representations for action prediction
-        # We want the state embeddings: indices 1, 3, 5, ... (every other, starting from 1)
-        state_indices = torch.arange(1, transformer_outputs.size(0), 2, device=transformer_outputs.device)
-        state_outputs = transformer_outputs[state_indices]  # (seq_len, batch, hidden)
-        state_outputs = state_outputs.transpose(0, 1)  # (batch, seq_len, hidden)
+        # We want the state embeddings: indices 1, 4, 7, ... (every 3rd, starting from 1)
+        # These correspond to the state positions in [r, s, a, r, s, a, ...]
+        state_indices = torch.arange(1, transformer_outputs.size(1), 3, device=transformer_outputs.device)
+        state_outputs = transformer_outputs[:, state_indices, :]  # (batch, seq_len, hidden)
         
         # Predict actions
         action_preds = self.predict_action(state_outputs)  # (batch, seq_len, action_dim)

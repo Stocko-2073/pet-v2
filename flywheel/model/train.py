@@ -152,7 +152,8 @@ class DecisionTransformerDataset:
                     seq_rtg.append([returns_to_go[i] / self.rtg_scale])  # Normalize RTG
                     seq_timesteps.append(step.timestep)
                 
-                # Target actions are the actions taken (for supervised learning)
+                # Target actions are the actions we want to predict
+                # For Decision Transformer, we predict the same actions (supervised learning on expert demonstrations)
                 target_actions = seq_actions.copy()
                 
                 self.sequences.append({
