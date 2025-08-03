@@ -495,7 +495,7 @@ class Roboscad:
                 {'name': 'white', 'r': 1, 'g': 1, 'b': 1, 'a': 1.0},
             ] # TODO: Add colors
             for color in colors:
-                f.write(f'      <material name="{color['name']}" rgba="{color['r']} {color['g']} {color['b']} {color['a']}"/>\n')
+                f.write(f'      <material name="{color["name"]}" rgba="{color["r"]} {color["g"]} {color["b"]} {color["a"]}"/>\n')
                 i += 1
 
             for part_label in all_parts:
@@ -562,7 +562,7 @@ class Roboscad:
                 if is_root:
                     f.write(f'{indent}    <camera name="back" pos="-3 0 1" xyaxes="0 -1 0 1 0 2" mode="trackcom"/>\n')
                     f.write(f'{indent}    <camera name="side" pos="0 -3 1" xyaxes="1 0 0 0 1 2" mode="trackcom"/>\n')
-                    f.write(f'{indent}    <freejoint/>\n')
+                    f.write(f'{indent}    <freejoint name="world_freejoint"/>\n')
 
                 rgba = self.hex2rgba(part_colors[part_label])
                 f.write(f'{indent}    <geom class="main_vis" mesh="part_{part_label}" rgba="{rgba}"/>\n')
@@ -571,7 +571,8 @@ class Roboscad:
                 # Find parent joints
                 parent_joints = [joint for joint in joints if joint.child == part]
                 for joint in parent_joints:
-                    f.write(f'{indent}    <joint name="{joint.type}_{joint.parent}_{joint.child}_{joint.params[8].replace(' ','_')}" ')
+                    munge=joint.params[8].replace(' ','_')
+                    f.write(f'{indent}    <joint name="{joint.type}_{joint.parent}_{joint.child}_{munge}" ')
                     f.write(f'axis="{joint.params[8]}" ')
                     f.write(f'range="{(joint.params[6]):.5e} {(joint.params[7]):.5e}" ')
                     f.write(f'class="servo_joint"/>\n')
@@ -598,7 +599,8 @@ class Roboscad:
             f.write(f'  <actuator>\n')
             for joint in joints:
                 """ kp="500" kv="10" """
-                f.write(f'    <position joint="{joint.type}_{joint.parent}_{joint.child}_{joint.params[8].replace(' ','_')}" class="servo_actuator"/>\n')
+                munge = joint.params[8].replace(' ','_')
+                f.write(f'    <position joint="{joint.type}_{joint.parent}_{joint.child}_{munge}" class="servo_actuator"/>\n')
             f.write(f'  </actuator>\n')
 #             f.write(f"""
 #   <keyframe>
