@@ -311,7 +311,8 @@ def train_ppo_flywheel(
     num_layers: int = 2,
     learning_rate: float = 3e-4,
     max_episode_length: int = 200,
-    save_path: str = 'flywheel_ppo_model.pt',
+        steps_per_action: int = 1,
+        save_path: str = 'flywheel_ppo_model.pt',
     device: str = 'cpu'
 ):
     """Train PPO on flywheel control task"""
@@ -319,8 +320,9 @@ def train_ppo_flywheel(
     print("Setting up flywheel environment...")
     env = FlywheelEnv(port,
                       max_episode_steps=max_episode_length,
-                      position_history_size=2000)
-    
+                      position_history_size=2000,
+                      steps_per_action=steps_per_action)
+
     try:
         # Create model
         print("Creating LSTM Actor-Critic model...")
@@ -354,7 +356,8 @@ def test_trained_ppo_model(
     port: str, 
     model_path: str = 'flywheel_ppo_model.pt', 
     num_episodes: int = 5,
-    max_episode_length: int = 200
+        max_episode_length: int = 200,
+        steps_per_action: int = 1
 ):
     """Test trained PPO model"""
     
@@ -381,8 +384,8 @@ def test_trained_ppo_model(
         return
     
     # Test with environment
-    env = FlywheelEnv(port, max_episode_steps=max_episode_length)
-    
+    env = FlywheelEnv(port, max_episode_steps=max_episode_length, steps_per_action=steps_per_action)
+
     try:
         episode_rewards = []
         episode_lengths = []
@@ -433,7 +436,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train PPO for flywheel control')
     parser.add_argument('port', help='Serial port (e.g., /dev/ttyUSB0 or COM3)')
     parser.add_argument('--mode', choices=['train', 'test'], default='train', help='Mode: train or test')
-    parser.add_argument('--timesteps', type=int, default=50000, help='Total training timesteps')
+    parser.add_argument('--timesteps', type=int, default=500000, help='Total training timesteps')
     parser.add_argument('--steps-per-update', type=int, default=2048, help='Steps per policy update')
     parser.add_argument('--hidden-size', type=int, default=128, help='LSTM hidden size')
     parser.add_argument('--num-layers', type=int, default=2, help='Number of LSTM layers')
@@ -441,6 +444,7 @@ if __name__ == "__main__":
     parser.add_argument('--max-episode-length', type=int, default=400, help='Maximum episode length')
     parser.add_argument('--model-path', default='flywheel_ppo_model.pt', help='Model save/load path')
     parser.add_argument('--device', default='cpu', help='Device (cpu or cuda)')
+    parser.add_argument('--steps-per-action', type=int, default=1, help='Steps per action')
     parser.add_argument('--test-episodes', type=int, default=5, help='Number of test episodes')
     
     args = parser.parse_args()
@@ -454,6 +458,7 @@ if __name__ == "__main__":
             num_layers=args.num_layers,
             learning_rate=args.learning_rate,
             max_episode_length=args.max_episode_length,
+            steps_per_action=args.steps_per_action,
             save_path=args.model_path,
             device=args.device
         )
@@ -462,5 +467,6 @@ if __name__ == "__main__":
             port=args.port,
             model_path=args.model_path,
             num_episodes=args.test_episodes,
-            max_episode_length=args.max_episode_length
+            max_episode_length=args.max_episode_length,
+            steps_per_action=args.steps_per_action
         )

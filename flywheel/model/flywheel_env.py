@@ -28,19 +28,27 @@ class FlywheelEnv:
 
     def _communication_loop(self):
         """Thread function: Unified serial communication - handles both servo control and data collection"""
+        self.connect()
+
+        # Home the servo
+        print("Homing servo..")
+        self.comm.set_servo_enable(True)
+        self.comm.set_servo_position(0)
+        time.sleep(0.5)
+        self.comm.set_servo_enable(False)
+        time.sleep(1)
+        self.comm.reset_encoder()
+        time.sleep(0.1)
+        self.comm.set_servo_enable(True)
+        print("Done.")
+
+
         while True:
             if self.comm:
                 # Send servo command and track statistics
                 try:
                     if self.reset_env:
                         self.reset_env = False
-                        # Reset encoder position
-                        self.comm.reset_encoder()
-                        time.sleep(0.1)  # Allow reset to complete
-
-                        # Set servo to neutral position
-                        self.comm.set_servo_position(90.0)
-                        time.sleep(0.1)
 
                     # Update servo enable state
                     if self.servo_enabled != self.last_servo_enabled:
@@ -55,6 +63,7 @@ class FlywheelEnv:
                     data = self.comm.read_sensor_data()
                     if data:
                         self.sensor_data = data
+                        self.get_sample = False
 
                     # Check for errors
                     error = self.comm.read_error()
@@ -69,6 +78,11 @@ class FlywheelEnv:
             # Small sleep to prevent overwhelming the system
             time.sleep(0.001)  # 1ms
 
+    def wait_for_next_sample(self):
+        self.get_sample = True
+        while self.get_sample:
+            time.sleep(0.001)
+
     def __init__(self, port: str, baudrate: int = 2000000, max_episode_steps: int = 1000,
                  position_history_size: int = 20, target_tolerance: float = 100.0):
         self.port = port
@@ -77,6 +91,7 @@ class FlywheelEnv:
         self.comm = None
 
         self.servo_position = 0
+        self.get_sample = False
         self.last_servo_position = 180
         self.servo_enabled = True
         self.last_servo_enabled = False
@@ -85,24 +100,6 @@ class FlywheelEnv:
         self.communication_thread: Optional[threading.Thread] = None
         self.communication_thread = threading.Thread(target=self._communication_loop, daemon=True)
         self.communication_thread.start()
-
-        # Home the servo and calibrate the position sensor
-        if not self.comm:
-            self.connect()
-        print("Homing Servo")
-        self.servo_position = 0
-        time.sleep(3)
-        while self.sensor_data is None:
-            time.sleep(0.01)
-        last_sensor_data = self.sensor_data
-        while True:
-            time.sleep(0.01)
-            if self.sensor_data.position == last_sensor_data.position:
-                break
-        self.reset_env = True
-        while self.reset_env:
-            time.sleep(0.01)
-        print("done.")
 
         # State space: 6 dimensions [time, pwm, current, voltage, position, servo_enabled]
         self.observation_space_low = np.array([0, 0, -10, 0, 0, 0], dtype=np.float32)
@@ -152,8 +149,6 @@ class FlywheelEnv:
 
     def reset(self) -> np.ndarray:
         """Reset the environment for a new episode"""
-        if not self.comm:
-            self.connect()
 
         # Reset episode tracking
         self.current_step = 0
@@ -211,10 +206,10 @@ class FlywheelEnv:
 
         # Extract servo position and enable from 2D action
         self.servo_position = 0 if servo_pos_scaled > 90 else 180
+        # self.servo_position = servo_pos_scaled
         self.servo_enabled = servo_enable_raw > 0.5  # Threshold at 0.5
 
-        # Wait a bit for the action to take effect ~100Hz
-        time.sleep(0.0023)
+        self.wait_for_next_sample()
 
         # Get new state
         new_state = self._get_state()
@@ -304,7 +299,7 @@ class FlywheelEnv:
 
         # 1. Position Error Reward (exponential decay)
         position_error = abs(current_position - self.target_position)
-        position_reward = np.exp(-position_error / 200.0)  # Max reward 1.0 at perfect position
+        position_reward = np.exp(-position_error / 30.0)  # Max reward 1.0 at perfect position
 
         # 2. Stability Reward (low velocity when near target)
         stability_reward = 0.0
@@ -341,18 +336,25 @@ class FlywheelEnv:
             self.time_in_tolerance = 0
 
         # 5. Energy Efficiency (small penalty for high current)
-        energy_penalty = -abs(current_mA) / 10000.0  # Small penalty
+        energy_penalty = -abs(current_mA) / 1000.0  # Small penalty
 
         self.last_action = action
 
         # Combine all reward components
         total_reward = (
-                position_reward * 2.0 +  # Primary objective: reach target
-                stability_reward * 1.0 +  # Secondary: be stable
-                oscillation_penalty * 1.5 +  # Important: minimize oscillation
-                tolerance_bonus * 1.0 +  # Bonus: stay at target
-                energy_penalty * 0.5  # Minor: energy efficiency
+                position_reward * 1.0 +  # Primary objective: reach target
+                stability_reward * 0.5 +  # Secondary: be stable
+                oscillation_penalty * 0.75 +  # Important: minimize oscillation
+                tolerance_bonus * 0.5 +  # Bonus: stay at target
+                energy_penalty * 0.25  # Minor: energy efficiency
         )
+        # print(
+        #     f"position_reward: {position_reward * 2.0}",
+        #     f"stability_reward: {stability_reward * 1.0}",
+        #     f"oscillation_penalty: {oscillation_penalty * 1.5}",
+        #     f"tolerance_bonus: {tolerance_bonus * 1.0}",
+        #     f"energy_penalty: {energy_penalty * 0.5}",
+        # )
 
         return float(total_reward)
 
@@ -440,9 +442,12 @@ if __name__ == "__main__":
 
             if step % 10 == 0:
                 metrics = env.get_oscillation_metrics()
-                print(f"Step {step}: action={action:.1f}, reward={reward:.3f}, "
+                print(f"Step {step}: action=[{action[0]:.1f}, {action[1]:.1f}], reward={reward:.3f}, "
                       f"pos_err={metrics['position_error']:.1f}, "
-                      f"velocity={metrics['velocity']:.1f}, target={metrics['target_position']:.0f}")
+                      f"velocity={metrics['velocity']:.1f}, target={metrics['target_position']:.0f}, "
+                      f"vel_var={metrics['velocity_variance']:.3f}, "
+                      f"time_in_tol={metrics['time_in_tolerance']}, "
+                      f"stable_steps={metrics['consecutive_stable_steps']}")
 
             if done:
                 print(f"Episode finished early at step {step}")
