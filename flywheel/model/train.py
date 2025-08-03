@@ -195,7 +195,7 @@ class DecisionTransformerDataset:
             # Pad sequences to max_len
             if seq_len < max_len:
                 pad_len = max_len - seq_len
-                states = np.concatenate([np.zeros((pad_len, 5)), seq['states']], axis=0)
+                states = np.concatenate([np.zeros((pad_len, 6)), seq['states']], axis=0)  # Updated for 6D state space
                 actions = np.concatenate([np.zeros((pad_len, 1)), seq['actions']], axis=0)
                 rtg = np.concatenate([np.zeros((pad_len, 1)), seq['returns_to_go']], axis=0)
                 timesteps = np.concatenate([np.zeros(pad_len), seq['timesteps']], axis=0)
@@ -262,8 +262,8 @@ def train_decision_transformer(
         # Create model
         print("Creating model...")
         model = DecisionTransformer(
-            state_dim=5,
-            action_dim=1,
+            state_dim=6,  # Updated for 6D state space [time, pwm, current, voltage, position, servo_enabled]
+            action_dim=2,
             hidden_size=hidden_size,
             max_length=context_length,
             n_layer=n_layers,
@@ -305,8 +305,8 @@ def train_decision_transformer(
         torch.save({
             'model_state_dict': model.state_dict(),
             'config': {
-                'state_dim': 5,
-                'action_dim': 1,
+                'state_dim': 6,  # Updated for 6D state space
+                'action_dim': 2,
                 'hidden_size': hidden_size,
                 'max_length': context_length,
                 'n_layer': n_layers,

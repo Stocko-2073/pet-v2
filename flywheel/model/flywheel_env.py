@@ -42,8 +42,13 @@ class FlywheelEnv:
                         self.comm.set_servo_position(90.0)
                         time.sleep(0.1)
 
-                    # Update servo position
-                    if self.servo_position != self.last_servo_position:
+                    # Update servo enable state
+                    if self.servo_enabled != self.last_servo_enabled:
+                        if self.comm.set_servo_enable(self.servo_enabled):
+                            self.last_servo_enabled = self.servo_enabled
+                    
+                    # Update servo position (only if enabled)
+                    if self.servo_enabled and self.servo_position != self.last_servo_position:
                         if self.comm.set_servo_position(self.servo_position):
                             self.last_servo_position = self.servo_position
                     # Read sensor data
@@ -73,6 +78,8 @@ class FlywheelEnv:
 
         self.servo_position = 0
         self.last_servo_position = 180
+        self.servo_enabled = True
+        self.last_servo_enabled = False
         self.sensor_data = None
         self.reset_env = False
         self.communication_thread: Optional[threading.Thread] = None
@@ -99,13 +106,13 @@ class FlywheelEnv:
         print("done.")
 
 
-        # State space: 5 dimensions
-        self.observation_space_low = np.array([0, 0, -5000, 0, -100000], dtype=np.float32)
-        self.observation_space_high = np.array([1e9, 1023, 5000, 15, 100000], dtype=np.float32)
+        # State space: 6 dimensions [time, pwm, current, voltage, position, servo_enabled]
+        self.observation_space_low = np.array([0, 0, -5000, 0, -100000, 0], dtype=np.float32)
+        self.observation_space_high = np.array([1e9, 1023, 5000, 15, 100000, 1], dtype=np.float32)
         
-        # Action space: servo position 0-180 degrees
-        self.action_space_low = 0.0
-        self.action_space_high = 180.0
+        # Action space: [servo position 0-180 degrees, servo enable 0-1]
+        self.action_space_low = np.array([0.0, 0.0], dtype=np.float32)
+        self.action_space_high = np.array([180.0, 1.0], dtype=np.float32)
         
         # Episode tracking
         self.current_step = 0
@@ -163,7 +170,8 @@ class FlywheelEnv:
         self.consecutive_stable_steps = 0
         self.last_action = None
 
-        self.servo_position=random.uniform(self.action_space_low,self.action_space_high)
+        self.servo_position=random.uniform(self.action_space_low[0],self.action_space_high[0])
+        self.servo_enabled = True  # Start enabled
         print(f"Moving servo position to {self.servo_position}")
         time.sleep(0.4)
         print(f"Servo moved to {self.servo_position}")
@@ -178,7 +186,7 @@ class FlywheelEnv:
         
         return state
     
-    def step(self, action: float) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+    def step(self, action) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
         """
         Execute one step in the environment
         
@@ -193,11 +201,19 @@ class FlywheelEnv:
         """
         success = True
 
-        # Clip action to valid range
-        action = np.clip(action, self.action_space_low, self.action_space_high)
+        # Scale action from model output ranges to actual ranges
+        # action[0] from tanh is in [-1, 1], scale to [0, 180]
+        # action[1] from sigmoid is in [0, 1], use directly
+        servo_pos_scaled = (action[0] + 1) * 90.0  # [-1,1] -> [0,180]
+        servo_enable_raw = action[1]
         
-        # Send the action to device
-        self.servo_position = action
+        # Clip to valid ranges
+        servo_pos_scaled = np.clip(servo_pos_scaled, 0.0, 180.0)
+        servo_enable_raw = np.clip(servo_enable_raw, 0.0, 1.0)
+        
+        # Extract servo position and enable from 2D action
+        self.servo_position = servo_pos_scaled
+        self.servo_enabled = servo_enable_raw > 0.5  # Threshold at 0.5
 
         # Wait a bit for the action to take effect ~100Hz
         time.sleep(0.01)
@@ -206,6 +222,7 @@ class FlywheelEnv:
         new_state = self._get_state()
         
         # Calculate reward
+        # Pass only servo position to reward calculation (for action smoothness)
         reward = self._calculate_reward(self.last_state, action, new_state)
         
         # Check if episode is done
@@ -233,11 +250,12 @@ class FlywheelEnv:
 
         # Convert to normalized state vector
         raw_state = np.array([
-            0,#float(sensor_data.time_us),
+            float(sensor_data.time_us/1000000.0) % 1.0,
             float(sensor_data.pwm_value),
             sensor_data.current_mA,
             sensor_data.voltage_V,
-            float(sensor_data.position)
+            float(sensor_data.position),
+            float(sensor_data.servo_enabled)
         ], dtype=np.float32)
         
         # Update position history for oscillation detection
@@ -271,7 +289,7 @@ class FlywheelEnv:
         """Convert normalized state back to original scale"""
         return self.observation_space_low + (normalized_state + 1.0) * (self.observation_space_high - self.observation_space_low) / 2.0
     
-    def _calculate_reward(self, last_state: Optional[np.ndarray], action: float, new_state: np.ndarray) -> float:
+    def _calculate_reward(self, last_state: Optional[np.ndarray], action, new_state: np.ndarray) -> float:
         """
         Enhanced reward function for position control with oscillation penalty.
         Rewards: position accuracy, stability, low oscillation, energy efficiency
@@ -324,13 +342,7 @@ class FlywheelEnv:
         
         # 5. Energy Efficiency (small penalty for high current)
         energy_penalty = -abs(current_mA) / 10000.0  # Small penalty
-        
-        # 6. Action Smoothness (penalize large servo changes)
-        smoothness_penalty = 0.0
-        if hasattr(self, 'last_action') and self.last_action is not None:
-            action_change = abs(action - self.last_action)
-            smoothness_penalty = -action_change / 1000.0  # Small penalty for large changes
-        
+
         self.last_action = action
         
         # Combine all reward components
@@ -339,8 +351,7 @@ class FlywheelEnv:
             stability_reward * 1.0 +       # Secondary: be stable
             oscillation_penalty * 1.5 +    # Important: minimize oscillation
             tolerance_bonus * 1.0 +        # Bonus: stay at target
-            energy_penalty * 0.5 +         # Minor: energy efficiency
-            smoothness_penalty * 0.3       # Minor: smooth actions
+            energy_penalty * 0.5           # Minor: energy efficiency
         )
         
         return float(total_reward)

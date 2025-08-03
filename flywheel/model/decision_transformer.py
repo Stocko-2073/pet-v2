@@ -37,8 +37,8 @@ class DecisionTransformer(nn.Module):
     
     def __init__(
         self,
-        state_dim: int = 5,           # Flywheel state dimension
-        action_dim: int = 1,          # Servo position (scalar)
+        state_dim: int = 6,           # Flywheel state dimension [time, pwm, current, voltage, position, servo_enabled]
+        action_dim: int = 2,          # [servo_position, servo_enable]
         hidden_size: int = 128,       # Transformer hidden size
         max_length: int = 20,         # Maximum sequence length
         n_layer: int = 3,             # Number of transformer layers
@@ -130,7 +130,12 @@ class DecisionTransformer(nn.Module):
         action_preds = self.predict_action(state_outputs)  # (batch, seq_len, action_dim)
         
         if self.action_tanh:
-            action_preds = torch.tanh(action_preds)
+            # Apply different activations for different action dimensions
+            # Servo position: tanh for [-1, 1] range (will be scaled to [0, 180])
+            # Servo enable: sigmoid for [0, 1] range
+            action_pos = torch.tanh(action_preds[..., :1])  # First dimension: servo position
+            action_enable = torch.sigmoid(action_preds[..., 1:])  # Second dimension: servo enable
+            action_preds = torch.cat([action_pos, action_enable], dim=-1)
             
         return action_preds
     
@@ -284,7 +289,7 @@ class FlywheelController:
         # Pad with zeros if sequence is too short
         if seq_len < self.context_length:
             padding_len = self.context_length - seq_len
-            padded_states = [np.zeros(5) for _ in range(padding_len)] + self.state_history
+            padded_states = [np.zeros(6) for _ in range(padding_len)] + self.state_history  # Updated for 6D state space
             padded_actions = [np.zeros(1) for _ in range(padding_len)] + self.action_history
             padded_rewards = [0.0 for _ in range(padding_len)] + self.reward_history
         else:
@@ -333,15 +338,15 @@ class FlywheelController:
 if __name__ == "__main__":
     # Test model creation
     model = DecisionTransformer(
-        state_dim=5,
-        action_dim=1,
+        state_dim=6,  # Updated for 6D state space
+        action_dim=2,
         hidden_size=128,
         max_length=20
     )
     
     # Test forward pass
     batch_size, seq_len = 2, 10
-    states = torch.randn(batch_size, seq_len, 5)
+    states = torch.randn(batch_size, seq_len, 6)  # Updated for 6D state space
     actions = torch.randn(batch_size, seq_len, 1)
     returns_to_go = torch.randn(batch_size, seq_len, 1)
     timesteps = torch.arange(seq_len).unsqueeze(0).repeat(batch_size, 1)
