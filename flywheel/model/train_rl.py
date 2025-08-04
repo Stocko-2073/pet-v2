@@ -10,7 +10,6 @@ import time
 import os
 import json
 from typing import List, Tuple, Dict, Any
-import matplotlib.pyplot as plt
 
 from flywheel_env import FlywheelEnv
 from lstm_rl_model import LSTMActorCritic, PPOBuffer, PPOTrainer
@@ -181,7 +180,6 @@ class RLTrainingManager:
         all_update_stats = []
         
         while timesteps_collected < total_timesteps:
-            # Collect experience
             collection_stats = self.collect_experience(
                 n_steps=steps_per_update,
                 max_episode_length=max_episode_length
@@ -190,11 +188,9 @@ class RLTrainingManager:
             timesteps_collected += collection_stats['steps_collected']
             update_count += 1
             
-            # Update policy
             update_stats = self.update_policy(update_epochs, batch_size)
             all_update_stats.append(update_stats)
             
-            # Logging
             if update_count % log_frequency == 0:
                 recent_rewards = self.episode_rewards[-20:] if len(self.episode_rewards) >= 20 else self.episode_rewards
                 avg_reward = np.mean(recent_rewards) if recent_rewards else 0
@@ -207,16 +203,11 @@ class RLTrainingManager:
                 print(f"Update stats: {update_stats}")
                 print("-" * 50)
             
-            # Save model
             if update_count % save_frequency == 0:
                 self.save_model(save_path, update_count, timesteps_collected)
         
-        # Final save
         self.save_model(save_path, update_count, timesteps_collected)
-        
-        # Plot training curves
-        self.plot_training_curves()
-        
+
         print(f"Training completed! Model saved to {save_path}")
         
         return {
@@ -252,56 +243,6 @@ class RLTrainingManager:
         
         torch.save(checkpoint, save_path)
         print(f"Model saved to {save_path}")
-    
-    def plot_training_curves(self, save_path: str = 'rl_training_curves.png'):
-        """Plot training progress"""
-        
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-        
-        # Episode rewards
-        if self.episode_rewards:
-            axes[0, 0].plot(self.episode_rewards)
-            axes[0, 0].set_title('Episode Rewards')
-            axes[0, 0].set_xlabel('Episode')
-            axes[0, 0].set_ylabel('Reward')
-            
-            # Moving average
-            if len(self.episode_rewards) > 10:
-                window = min(50, len(self.episode_rewards) // 4)
-                moving_avg = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
-                axes[0, 0].plot(range(window-1, len(self.episode_rewards)), moving_avg, 'r-', alpha=0.7, label=f'MA({window})')
-                axes[0, 0].legend()
-        
-        # Episode lengths
-        if self.episode_lengths:
-            axes[0, 1].plot(self.episode_lengths)
-            axes[0, 1].set_title('Episode Lengths')
-            axes[0, 1].set_xlabel('Episode')
-            axes[0, 1].set_ylabel('Length')
-        
-        # Training losses
-        if self.training_losses:
-            axes[1, 0].plot(self.training_losses, label='Total Loss')
-            if self.policy_losses:
-                axes[1, 0].plot(self.policy_losses, label='Policy Loss')
-            if self.value_losses:
-                axes[1, 0].plot(self.value_losses, label='Value Loss')
-            axes[1, 0].set_title('Training Losses')
-            axes[1, 0].set_xlabel('Update')
-            axes[1, 0].set_ylabel('Loss')
-            axes[1, 0].legend()
-            axes[1, 0].set_yscale('log')
-        
-        # Entropy loss
-        if self.entropy_losses:
-            axes[1, 1].plot(self.entropy_losses)
-            axes[1, 1].set_title('Entropy Loss')
-            axes[1, 1].set_xlabel('Update')
-            axes[1, 1].set_ylabel('Entropy Loss')
-        
-        plt.tight_layout()
-        plt.savefig(save_path)
-        print(f"Training curves saved to {save_path}")
 
 def train_ppo_flywheel(
     port: str,
@@ -310,9 +251,9 @@ def train_ppo_flywheel(
     hidden_size: int = 128,
     num_layers: int = 2,
     learning_rate: float = 3e-4,
-    max_episode_length: int = 200,
-        steps_per_action: int = 1,
-        save_path: str = 'flywheel_ppo_model.pt',
+    max_episode_length: int = 400,
+    steps_per_action: int = 1,
+    save_path: str = 'flywheel_ppo_model.pt',
     device: str = 'cpu'
 ):
     """Train PPO on flywheel control task"""
@@ -324,7 +265,6 @@ def train_ppo_flywheel(
                       steps_per_action=steps_per_action)
 
     try:
-        # Create model
         print("Creating LSTM Actor-Critic model...")
         model = LSTMActorCritic(
             state_dim=6,  # [time, pwm, current, voltage, position, servo_enabled]
@@ -332,11 +272,7 @@ def train_ppo_flywheel(
             hidden_size=hidden_size,
             num_layers=num_layers
         )
-        
-        # Create trainer
         trainer = PPOTrainer(model, learning_rate=learning_rate, device=device)
-        
-        # Create training manager
         training_manager = RLTrainingManager(env, model, trainer, device=device)
         
         # Train
@@ -438,13 +374,13 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['train', 'test'], default='train', help='Mode: train or test')
     parser.add_argument('--timesteps', type=int, default=500000, help='Total training timesteps')
     parser.add_argument('--steps-per-update', type=int, default=2048, help='Steps per policy update')
-    parser.add_argument('--hidden-size', type=int, default=128, help='LSTM hidden size')
-    parser.add_argument('--num-layers', type=int, default=2, help='Number of LSTM layers')
+    parser.add_argument('--hidden-size', type=int, default=256, help='LSTM hidden size')
+    parser.add_argument('--num-layers', type=int, default=4, help='Number of LSTM layers')
     parser.add_argument('--learning-rate', type=float, default=3e-4, help='Learning rate')
-    parser.add_argument('--max-episode-length', type=int, default=400, help='Maximum episode length')
+    parser.add_argument('--max-episode-length', type=int, default=100, help='Maximum episode length')
     parser.add_argument('--model-path', default='flywheel_ppo_model.pt', help='Model save/load path')
     parser.add_argument('--device', default='cpu', help='Device (cpu or cuda)')
-    parser.add_argument('--steps-per-action', type=int, default=1, help='Steps per action')
+    parser.add_argument('--steps-per-action', type=int, default=2, help='Steps per action')
     parser.add_argument('--test-episodes', type=int, default=5, help='Number of test episodes')
     
     args = parser.parse_args()
