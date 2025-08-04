@@ -14,6 +14,7 @@ uint64_t accumulator;
 uint16_t sample_rate = 100; // Hz
 uint64_t sample_interval;
 bool servo_enabled = true; // Track servo enable state
+int servo_position_deg = 90;
 
 void send_binary_message(uint8_t msg_type, const void *payload, uint8_t payload_len) {
   struct ProtocolHeader header;
@@ -63,9 +64,9 @@ void process_command(uint8_t cmd_type, const uint8_t *payload, uint8_t payload_l
     case CMD_SET_SERVO_POSITION: {
       if (payload_len == sizeof(struct SetServoPositionPayload)) {
         struct SetServoPositionPayload *cmd = (struct SetServoPositionPayload *) payload;
-        uint16_t position_deg = cmd->position_deg_x10 / 10;
-        if (position_deg <= 180) {
-          servo.write(position_deg);
+        servo_position_deg = cmd->position_deg_x10 / 10;
+        if (servo_position_deg <= 180) {
+          servo.write(servo_position_deg);
         } else {
           success = false;
         }
@@ -99,9 +100,11 @@ void process_command(uint8_t cmd_type, const uint8_t *payload, uint8_t payload_l
       if (payload_len == sizeof(struct SetServoEnablePayload)) {
         struct SetServoEnablePayload *cmd = (struct SetServoEnablePayload *) payload;
         if (cmd->enabled) {
+          servo.write(servo_position_deg);
           servo.attach(D0, 544, 2400);
           servo_enabled = true;
         } else {
+          pinMode(D0, INPUT);
           servo.detach();
           servo_enabled = false;
         }
