@@ -50,15 +50,17 @@ class FlywheelEnv:
                     if self.reset_env:
                         self.reset_env = False
 
+                    # Update servo position
+                    if self.servo_position != self.last_servo_position:
+                        if self.comm.set_servo_position(self.servo_position):
+                            self.last_servo_position = self.servo_position
+
                     # Update servo enable state
                     if self.servo_enabled != self.last_servo_enabled:
                         if self.comm.set_servo_enable(self.servo_enabled):
                             self.last_servo_enabled = self.servo_enabled
 
-                    # Update servo position (only if enabled)
-                    if self.servo_enabled and self.servo_position != self.last_servo_position:
-                        if self.comm.set_servo_position(self.servo_position):
-                            self.last_servo_position = self.servo_position
+
                     # Read sensor data
                     data = self.comm.read_sensor_data()
                     if data:
@@ -84,10 +86,12 @@ class FlywheelEnv:
             time.sleep(0.001)
 
     def __init__(self, port: str, baudrate: int = 2000000, max_episode_steps: int = 1000,
-                 position_history_size: int = 20, target_tolerance: float = 100.0):
+                 position_history_size: int = 20, target_tolerance: float = 100.0,
+                 steps_per_action: int = 1):
         self.port = port
         self.baudrate = baudrate
         self.max_episode_steps = max_episode_steps
+        self.steps_per_action = steps_per_action
         self.comm = None
 
         self.servo_position = 0
@@ -117,8 +121,7 @@ class FlywheelEnv:
         # Target position management
         self.target_position = 0
         self.target_tolerance = target_tolerance
-        self.target_change_probability = 0.1  # Chance to change target each episode
-        self.possible_targets = [0, 45, 90, 135, 180]  # Example target positions
+        self.target_change_probability = 0.2  # Chance to change target each episode
 
         # Position history for oscillation detection
         self.position_history_size = position_history_size
@@ -131,7 +134,7 @@ class FlywheelEnv:
         self.time_in_tolerance = 0
         self.consecutive_stable_steps = 0
         self.stability_threshold = 50.0  # Position velocity threshold for "stable"
-        self.last_action = None  # For action smoothness reward
+        self.action_step_counter = 0  # Track steps per action
 
         self.reset()
 
@@ -161,7 +164,6 @@ class FlywheelEnv:
         self.last_time = None
         self.time_in_tolerance = 0
         self.consecutive_stable_steps = 0
-        self.last_action = None
 
         self.servo_position = random.uniform(self.action_space_low[0], self.action_space_high[0])
         self.servo_enabled = True  # Start enabled
@@ -170,8 +172,9 @@ class FlywheelEnv:
         # print(f"Servo moved to {self.servo_position}")
 
         # Randomly set a new target position for this episode
-        if random.random() < self.target_change_probability or self.target_position == 0:
-            self.target_position = random.choice(self.possible_targets)
+        # if random.random() < self.target_change_probability or self.target_position == 0:
+        self.target_position = random.uniform(0,180)
+        print(f"Changed target position to {self.target_position}")
 
         # Get initial state
         state = self._get_state()
@@ -205,11 +208,14 @@ class FlywheelEnv:
         servo_enable_raw = np.clip(servo_enable_raw, 0.0, 1.0)
 
         # Extract servo position and enable from 2D action
-        self.servo_position = 0 if servo_pos_scaled > 90 else 180
+        # self.servo_position = 0 if servo_pos_scaled > 90 else 180
         # self.servo_position = servo_pos_scaled
+        #print(f"servo_position: {self.servo_position} target_position: {self.target_position}")
+        self.servo_position = self.target_position
         self.servo_enabled = servo_enable_raw > 0.5  # Threshold at 0.5
 
-        self.wait_for_next_sample()
+        for i in range(self.steps_per_action):
+            self.wait_for_next_sample()
 
         # Get new state
         new_state = self._get_state()
@@ -238,8 +244,8 @@ class FlywheelEnv:
         # Try to get sensor data with timeout
         sensor_data = self.sensor_data
         while sensor_data is None:
+            self.wait_for_next_sample()
             sensor_data = self.sensor_data
-            time.sleep(0.001)
 
         # Convert to normalized state vector
         raw_state = np.array([
@@ -338,11 +344,9 @@ class FlywheelEnv:
         # 5. Energy Efficiency (small penalty for high current)
         energy_penalty = -abs(current_mA) / 1000.0  # Small penalty
 
-        self.last_action = action
-
         # Combine all reward components
         total_reward = (
-                position_reward * 1.0 +  # Primary objective: reach target
+                position_reward * 2.0 +  # Primary objective: reach target
                 stability_reward * 0.5 +  # Secondary: be stable
                 oscillation_penalty * 0.75 +  # Important: minimize oscillation
                 tolerance_bonus * 0.5 +  # Bonus: stay at target
@@ -392,10 +396,6 @@ class FlywheelEnv:
         # Reset stability tracking when target changes
         self.time_in_tolerance = 0
         self.consecutive_stable_steps = 0
-
-    def set_target_positions(self, targets: List[float]):
-        """Set the list of possible target positions"""
-        self.possible_targets = targets
 
     def set_target_change_probability(self, prob: float):
         """Set probability of changing target each episode"""
